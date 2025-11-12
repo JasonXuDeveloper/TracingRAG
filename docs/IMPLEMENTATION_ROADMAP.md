@@ -56,10 +56,25 @@ Establish the core infrastructure and basic data models.
   - [ ] Delete memory state (soft delete)
   - [ ] List memories with pagination
 
+- [ ] **Latest State Tracking (CRITICAL)**
+  - [ ] Create `topic_latest_states` table
+  - [ ] Implement O(1) latest state lookup
+  - [ ] PostgreSQL trigger for auto-update
+  - [ ] Redis cache for hot paths
+  - [ ] Benchmark: target <10ms latency
+
+- [ ] **Memory Strength System**
+  - [ ] Implement access tracking (count, last_accessed)
+  - [ ] Memory strength calculation (decay + reinforcement)
+  - [ ] Update-on-access logic (reconsolidation)
+  - [ ] Importance score learning
+
 - [ ] **Basic Tests**
   - [ ] Unit tests for models
   - [ ] Integration tests for database connections
   - [ ] Test data fixtures
+  - [ ] Test latest state tracking
+  - [ ] Test memory strength calculations
 
 ### Deliverables
 - ✅ Working database connections
@@ -222,6 +237,14 @@ Implement relationship management and graph traversal.
   - [ ] Find influential states
   - [ ] Detect cycles
   - [ ] Graph density metrics
+
+- [ ] **Working Memory System (CRITICAL)**
+  - [ ] Implement context manager
+  - [ ] Pre-load related memories on context set
+  - [ ] In-memory query against working set
+  - [ ] Auto-expand on miss
+  - [ ] Redis-backed persistence
+  - [ ] Benchmark: target <10ms for working set queries
 
 - [ ] **Visualization Support**
   - [ ] Export graph to JSON for D3.js
@@ -531,11 +554,30 @@ Optimize, scale, and add advanced capabilities.
   - [ ] Background task queue
   - [ ] Parallel processing
 
-#### Week 15: Advanced Graph Features
+#### Week 15: Memory Consolidation & Storage
+- [ ] **Hierarchical Consolidation (Like Sleep)**
+  - [ ] Daily consolidation engine
+  - [ ] Weekly consolidation (roll-up dailies)
+  - [ ] Monthly consolidation (roll-up weeklies)
+  - [ ] Auto-trigger on growth thresholds
+  - [ ] Drill-down queries (summary → detail)
+
+- [ ] **Storage Tiering**
+  - [ ] Storage tier manager
+  - [ ] Working tier (Redis hot cache)
+  - [ ] Active tier (normal storage)
+  - [ ] Archived tier (cold storage/S3)
+  - [ ] Auto-promotion/demotion based on access patterns
+
+- [ ] **Diff-Based Storage**
+  - [ ] Diff computation algorithm
+  - [ ] Store deltas instead of full content
+  - [ ] Reconstruct version from diffs
+  - [ ] Space savings monitoring
+
 - [ ] **Hierarchical Graphs**
   - [ ] Topic hierarchies
   - [ ] Abstract/detail levels
-  - [ ] Drill-down queries
   - [ ] Roll-up summaries
 
 - [ ] **Edge Intelligence**
@@ -543,11 +585,6 @@ Optimize, scale, and add advanced capabilities.
   - [ ] Suggest new edges
   - [ ] Edge strength learning
   - [ ] Remove obsolete edges
-
-- [ ] **Graph Compression**
-  - [ ] Summarize dense subgraphs
-  - [ ] Create meta-nodes
-  - [ ] Maintain both views
 
 #### Week 16: Advanced Retrieval
 - [ ] **Multi-Modal Support**

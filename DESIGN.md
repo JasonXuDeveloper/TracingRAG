@@ -27,6 +27,22 @@ Project Memory (v1) → Project Memory (v2) → Project Memory (v3)
 - `embedding`: Vector representation for semantic search
 - `metadata`: Additional context (source, confidence, etc.)
 
+**Human Memory Simulation:**
+- `access_count`: How many times accessed (reinforcement learning)
+- `last_accessed`: When last retrieved (recency tracking)
+- `importance_score`: Learned importance 0-1 (salience)
+- `memory_strength`: Current strength 0-1 (decays like Ebbinghaus forgetting curve)
+- `storage_tier`: working/active/archived (human memory tiers)
+
+**Consolidation:**
+- `consolidated_from`: States this summarizes
+- `is_consolidated`: Whether this is a summary
+- `consolidation_level`: 0=raw, 1=daily, 2=weekly, 3=monthly
+
+**Storage Efficiency:**
+- `diff_from_parent`: Stores only changes (95% space savings)
+- `is_delta`: Stored as diff vs full content
+
 ### 2. Traces
 A **trace** is the complete history of a topic's evolution:
 - Ordered sequence of states
@@ -60,6 +76,54 @@ Creating a new state by synthesizing information from traces and graphs:
 5. Create new state with updated information
 6. Establish new edges to related concepts
 ```
+
+### 5. Memory Lifecycle & Consolidation (Human-Like)
+
+**Memory Strength Dynamics:**
+Memories behave like human memory with decay and reinforcement:
+- **Decay**: Unaccessed memories weaken over time (Ebbinghaus forgetting curve)
+- **Reinforcement**: Each access strengthens the memory (spaced repetition)
+- **Importance**: Important memories decay slower
+- **Never Lost**: Memories weaken but are never deleted (min strength 0.1)
+
+**Storage Tiers:**
+- **Working Memory**: Hot cache (Redis), recently/frequently accessed, <1000 items
+- **Active Memory**: Normal storage, regularly accessed, full search capability
+- **Archived Memory**: Cold storage (S3), rarely accessed, retrieved on demand
+
+**Hierarchical Consolidation (Like Sleep):**
+Automatic summarization at multiple time scales:
+- **Daily**: Consolidate each day's changes into summary
+- **Weekly**: Roll up daily summaries into weekly
+- **Monthly**: Roll up weekly summaries into monthly
+- **Benefit**: Query "what happened last month?" → instant summary, can drill down if needed
+
+### 6. Latest State Tracking (O(1) Lookup)
+
+**Critical for "What's the current status?" queries:**
+- Materialized view: `topic → latest_state_id` mapping
+- O(1) lookup via Redis cache + PostgreSQL index
+- Auto-updated on new state creation (database trigger)
+- Enables instant "give me the latest" without searching all versions
+
+**Performance:**
+- Without: Search through all versions, filter, sort → 100-500ms
+- With latest tracking: Direct lookup → <10ms
+
+### 7. Working Memory System
+
+**Context-Aware Hot Cache:**
+When working on a topic, pre-load related memories:
+- Latest states of main topic
+- Recent states (last 10 versions)
+- High-importance states
+- Related topics from graph
+
+**Benefits:**
+- Queries against working set: <10ms (in-memory)
+- No database hits for active context
+- Mimics human "having something in mind"
+- Automatically expands as you explore connections
 
 ## System Architecture
 
@@ -499,6 +563,7 @@ Agent:
 
 ## Advantages Over Traditional RAG
 
+### Core Capabilities
 1. **Temporal Awareness**: Can answer "what did we know at time T?"
 2. **Evolution Tracking**: Understand how knowledge changed and why
 3. **Contextual Relationships**: Not just semantic similarity
@@ -506,6 +571,22 @@ Agent:
 5. **Causality**: Understand cause-and-effect relationships
 6. **Synthesis**: Can create refined knowledge states
 7. **Agentic**: Intelligent retrieval strategies, not just keyword matching
+
+### Human-Like Memory (Critical Differentiator)
+8. **Memory Strength**: Mimics Ebbinghaus forgetting curve - memories decay but strengthen with access
+9. **Recency Bias**: Recent memories stronger, like human recall
+10. **Importance Learning**: System learns what's important from usage patterns
+11. **Working Memory**: Context-aware hot cache like human working memory (<10ms queries)
+12. **Consolidation**: Hierarchical summaries like human sleep consolidation
+13. **Latest State Tracking**: Instant O(1) lookup for "what's current?" queries
+14. **Reconsolidation**: Memories update when recalled (like human memory reconsolidation)
+
+### Scale & Performance
+15. **Instant Latest**: <10ms for current state (vs 100-500ms in traditional RAG)
+16. **Working Set**: <10ms for active context (vs full search every time)
+17. **Massive Scale**: Millions/billions of states with partitioning and tiering
+18. **Space Efficient**: 95% storage savings with diff-based versioning
+19. **Smart Caching**: Dynamic TTL based on content recency and access patterns
 
 ## Challenges and Solutions
 

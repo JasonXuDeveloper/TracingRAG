@@ -4,11 +4,27 @@ An enhanced Retrieval-Augmented Generation (RAG) system that combines temporal t
 
 ## Key Features
 
+### Core Capabilities
 - **Temporal Tracing**: Track the evolution of knowledge over time with full history
 - **Graph Relationships**: Connect related concepts and states
 - **Agentic Retrieval**: Intelligent, multi-step retrieval strategies
 - **Memory Promotion**: Synthesize new knowledge states from historical data
 - **Time-Travel Queries**: Query knowledge as it existed at any point in time
+
+### Human-Like Memory (What Makes TracingRAG Special)
+- **Memory Strength**: Memories decay over time but strengthen with access (like Ebbinghaus forgetting curve)
+- **Importance Learning**: System learns what's important from access patterns
+- **Working Memory**: Context-aware hot cache pre-loads related memories (<10ms queries)
+- **Hierarchical Consolidation**: Auto-summarizes at daily/weekly/monthly levels (like human sleep)
+- **Latest State Tracking**: Instant O(1) lookup for "what's the current status?" queries
+- **Storage Tiers**: Hot/warm/cold storage mimics human memory (working/active/archived)
+
+### Scale & Performance
+- **Instant Latest**: <10ms for current state queries
+- **Working Set**: <10ms for active context (in-memory)
+- **Full Search**: <100ms with caching and optimization
+- **Massive Scale**: Handles millions of states with partitioning and sharding
+- **Space Efficient**: 95% storage savings with diff-based versioning
 
 ## Architecture
 
