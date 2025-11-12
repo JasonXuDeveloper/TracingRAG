@@ -235,14 +235,14 @@ Key environment variables (see `.env.example`):
 
 ## Roadmap
 
-- [x] Phase 1: Foundation - Basic storage and data models
-- [ ] Phase 2: Tracing System - Temporal tracking and versioning
-- [ ] Phase 3: Graph Layer - Relationship management
-- [ ] Phase 4: Basic RAG - Query and retrieval
-- [ ] Phase 5: Agentic Layer - Intelligent agents
-- [ ] Phase 6: Memory Promotion - Synthesis capabilities
-- [ ] Phase 7: Advanced Features - Optimization and scaling
-- [ ] Phase 8: Production Ready - Deployment and monitoring
+- [x] **Phase 1: Foundation** - Core data models, storage interfaces, and basic infrastructure
+- [x] **Phase 2: Retrieval Services** - Semantic search, graph-enhanced retrieval, temporal queries, hybrid retrieval
+- [x] **Phase 3: Graph Layer** - Edge management, relationship types, temporal validity, graph traversal
+- [x] **Phase 4: Basic RAG** - Query processing, context building, LLM integration, response generation
+- [ ] **Phase 5: Agentic Layer** - Intelligent agents for query planning and memory management
+- [ ] **Phase 6: Memory Promotion** - Synthesis capabilities and knowledge consolidation
+- [ ] **Phase 7: Advanced Features** - Optimization, caching, and scaling enhancements
+- [ ] **Phase 8: Production Ready** - Deployment infrastructure, monitoring, and observability
 
 ## Contributing
 
