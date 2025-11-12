@@ -5,6 +5,9 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from tracingrag.core.models.graph import RelationshipType
 from tracingrag.core.models.promotion import (
     Conflict,
@@ -13,6 +16,9 @@ from tracingrag.core.models.promotion import (
     ConflictType,
     EdgeUpdate,
     PromotionCandidate,
+    PromotionEvaluation,
+    PromotionMode,
+    PromotionPolicy,
     PromotionRequest,
     PromotionResult,
     PromotionTrigger,
@@ -25,6 +31,8 @@ from tracingrag.services.graph import GraphService
 from tracingrag.services.llm import LLMClient, get_llm_client
 from tracingrag.services.memory import MemoryService
 from tracingrag.services.retrieval import RetrievalService
+from tracingrag.storage.database import get_session
+from tracingrag.storage.models import MemoryStateDB
 
 
 class PromotionService:
@@ -39,6 +47,7 @@ class PromotionService:
         synthesis_model: str = "anthropic/claude-3.5-sonnet",
         analysis_model: str = "deepseek/deepseek-chat-v3-0324:free",
         max_synthesis_tokens: int = 16000,
+        policy: PromotionPolicy | None = None,
     ):
         """
         Initialize promotion service
@@ -51,6 +60,7 @@ class PromotionService:
             synthesis_model: Model for content synthesis (premium)
             analysis_model: Model for analysis tasks (cheap/free)
             max_synthesis_tokens: Maximum tokens for synthesis output
+            policy: Promotion policy for automation configuration
         """
         self.memory_service = memory_service or MemoryService()
         self.graph_service = graph_service or GraphService()
@@ -59,6 +69,7 @@ class PromotionService:
         self.synthesis_model = synthesis_model
         self.analysis_model = analysis_model
         self.max_synthesis_tokens = max_synthesis_tokens
+        self.policy = policy or PromotionPolicy()
 
     async def promote_memory(self, request: PromotionRequest) -> PromotionResult:
         """
@@ -931,32 +942,277 @@ Respond with JSON."""
         return updates
 
     async def find_promotion_candidates(
-        self, limit: int = 10, min_priority: int = 5
+        self, limit: int | None = None, min_priority: int = 5
     ) -> list[PromotionCandidate]:
         """
-        Find topics that are candidates for promotion
+        Find topics that are candidates for promotion using database queries
 
         Args:
-            limit: Maximum candidates to return
+            limit: Maximum candidates to return (uses policy default if None)
             min_priority: Minimum priority (1-10)
 
         Returns:
             List of PromotionCandidate objects sorted by priority
         """
+        if limit is None:
+            limit = self.policy.max_candidates_per_scan
+
         candidates = []
 
-        # Get all topics with multiple versions
-        # This is a simplified implementation - in production, you'd query the database
-        # For now, return empty list as this requires more complex database queries
-        # that would need to be added to MemoryService
+        async with get_session() as session:
+            # Find topics with version count >= threshold
+            version_count_query = (
+                select(
+                    MemoryStateDB.topic,
+                    func.count(MemoryStateDB.id).label("version_count"),
+                    func.max(MemoryStateDB.timestamp).label("latest_timestamp"),
+                )
+                .group_by(MemoryStateDB.topic)
+                .having(func.count(MemoryStateDB.id) >= self.policy.version_count_threshold)
+                .order_by(func.count(MemoryStateDB.id).desc())
+                .limit(limit * 2)  # Get more for filtering
+            )
 
-        # TODO: Implement database query to find topics with:
-        # - Multiple versions (>= 5)
-        # - Not promoted recently (last 7 days)
-        # - High access frequency
-        # - Growing complexity (many related states)
+            result = await session.execute(version_count_query)
+            topic_stats = result.all()
 
-        return candidates
+            # Filter and evaluate each topic
+            for topic, version_count, latest_timestamp in topic_stats:
+                # Check if enough time has passed since last version
+                time_since_last = datetime.utcnow() - latest_timestamp
+                if time_since_last.days < self.policy.time_threshold_days:
+                    continue
+
+                # Check if version count trigger is enabled
+                if PromotionTrigger.AUTO_VERSION_COUNT not in self.policy.enabled_triggers:
+                    continue
+
+                # Evaluate with LLM if enabled
+                if self.policy.use_llm_evaluation:
+                    evaluation = await self.evaluate_promotion_need(
+                        topic=topic,
+                        trigger=PromotionTrigger.AUTO_VERSION_COUNT,
+                        metrics={
+                            "version_count": version_count,
+                            "days_since_last": time_since_last.days,
+                        },
+                    )
+
+                    if not evaluation.should_promote:
+                        continue
+
+                    if evaluation.confidence < self.policy.confidence_threshold:
+                        continue
+
+                    # Create candidate from evaluation
+                    candidates.append(
+                        PromotionCandidate(
+                            topic=topic,
+                            trigger=evaluation.trigger,
+                            priority=evaluation.priority,
+                            reasoning=evaluation.reasoning,
+                            current_version_count=version_count,
+                            last_promoted=latest_timestamp,
+                            confidence=evaluation.confidence,
+                            metadata=evaluation.metrics,
+                        )
+                    )
+                else:
+                    # Rule-based evaluation without LLM
+                    priority = min(10, max(1, version_count // 2))
+                    candidates.append(
+                        PromotionCandidate(
+                            topic=topic,
+                            trigger=PromotionTrigger.AUTO_VERSION_COUNT,
+                            priority=priority,
+                            reasoning=f"High version count ({version_count} versions)",
+                            current_version_count=version_count,
+                            last_promoted=latest_timestamp,
+                            confidence=0.7,
+                        )
+                    )
+
+                if len(candidates) >= limit:
+                    break
+
+        # Sort by priority and filter by min_priority
+        candidates = [c for c in candidates if c.priority >= min_priority]
+        candidates.sort(key=lambda c: c.priority, reverse=True)
+
+        return candidates[:limit]
+
+    async def evaluate_promotion_need(
+        self,
+        topic: str,
+        trigger: PromotionTrigger,
+        metrics: dict[str, Any] | None = None,
+    ) -> PromotionEvaluation:
+        """
+        Use LLM to evaluate whether a topic should be promoted
+
+        Args:
+            topic: Topic to evaluate
+            trigger: What triggered the evaluation
+            metrics: Metrics about the topic (version count, time, etc.)
+
+        Returns:
+            PromotionEvaluation with LLM's decision
+        """
+        # Get topic history for context
+        versions = await self.memory_service.get_topic_history(topic=topic, limit=10)
+
+        if not versions:
+            return PromotionEvaluation(
+                topic=topic,
+                should_promote=False,
+                confidence=1.0,
+                priority=1,
+                trigger=trigger,
+                reasoning="No versions found for topic",
+                metrics=metrics or {},
+            )
+
+        # Build context for LLM
+        versions_text = "\n\n".join(
+            [
+                f"Version {v.version} ({v.timestamp}):\n{v.content[:200]}..."
+                for v in versions[:5]
+            ]
+        )
+
+        metrics_text = "\n".join([f"- {k}: {v}" for k, v in (metrics or {}).items()])
+
+        prompt = f"""Evaluate whether the topic "{topic}" should be promoted (consolidated).
+
+Current Metrics:
+{metrics_text}
+
+Recent Versions (showing {len(versions[:5])} of {len(versions)}):
+{versions_text}
+
+Consider:
+1. Are there enough versions to warrant consolidation?
+2. Is there significant new information that should be integrated?
+3. Would consolidation improve coherence and reduce redundancy?
+4. Is the information stable enough to consolidate?
+
+Provide:
+1. should_promote (boolean): Whether to promote
+2. confidence (0.0-1.0): How confident are you
+3. priority (1-10): How urgent (1=low, 10=urgent)
+4. reasoning: Clear explanation of your decision
+
+Respond with JSON."""
+
+        schema = {
+            "name": "promotion_evaluation",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "should_promote": {"type": "boolean"},
+                    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    "priority": {"type": "integer", "minimum": 1, "maximum": 10},
+                    "reasoning": {"type": "string"},
+                },
+                "required": ["should_promote", "confidence", "priority", "reasoning"],
+                "additionalProperties": False,
+            },
+        }
+
+        request = LLMRequest(
+            system_prompt="You are a memory consolidation assistant that evaluates whether topics need promotion.",
+            user_message=prompt,
+            context="",
+            model=self.policy.evaluation_model,
+            temperature=0.2,
+            max_tokens=500,
+            json_schema=schema,
+        )
+
+        try:
+            response = await self.llm_client.generate(request)
+            result = json.loads(response.content)
+
+            return PromotionEvaluation(
+                topic=topic,
+                should_promote=result["should_promote"],
+                confidence=result["confidence"],
+                priority=result["priority"],
+                trigger=trigger,
+                reasoning=result["reasoning"],
+                metrics=metrics or {},
+            )
+
+        except Exception as e:
+            # Fallback to rule-based decision
+            version_count = metrics.get("version_count", 0) if metrics else 0
+            should_promote = version_count >= self.policy.version_count_threshold
+
+            return PromotionEvaluation(
+                topic=topic,
+                should_promote=should_promote,
+                confidence=0.5,
+                priority=5,
+                trigger=trigger,
+                reasoning=f"LLM evaluation failed ({str(e)}), using rule-based decision",
+                metrics=metrics or {},
+            )
+
+    async def evaluate_after_insertion(
+        self, topic: str, new_state_id: UUID
+    ) -> PromotionEvaluation | None:
+        """
+        Evaluate if promotion is needed after inserting a new memory state
+
+        This method should be called after creating a new memory state to check
+        if automatic promotion should be triggered.
+
+        Args:
+            topic: Topic that was updated
+            new_state_id: ID of the newly created state
+
+        Returns:
+            PromotionEvaluation if promotion recommended, None otherwise
+        """
+        # Only evaluate if automatic mode is enabled
+        if self.policy.mode != PromotionMode.AUTOMATIC:
+            return None
+
+        # Get topic statistics
+        versions = await self.memory_service.get_topic_history(topic=topic, limit=20)
+
+        if len(versions) < self.policy.version_count_threshold:
+            return None
+
+        # Evaluate with LLM
+        evaluation = await self.evaluate_promotion_need(
+            topic=topic,
+            trigger=PromotionTrigger.AUTO_VERSION_COUNT,
+            metrics={
+                "version_count": len(versions),
+                "new_state_id": str(new_state_id),
+                "auto_triggered": True,
+            },
+        )
+
+        # Check if meets thresholds
+        if not evaluation.should_promote:
+            return None
+
+        if evaluation.confidence < self.policy.confidence_threshold:
+            return None
+
+        # If in automatic mode and passes thresholds, execute promotion
+        if self.policy.mode == PromotionMode.AUTOMATIC and not self.policy.dry_run:
+            request = PromotionRequest(
+                topic=topic,
+                reason=evaluation.reasoning,
+                trigger=evaluation.trigger,
+            )
+            await self.promote_memory(request)
+
+        return evaluation
 
     async def batch_promote(
         self, candidates: list[PromotionCandidate], max_concurrent: int = 3

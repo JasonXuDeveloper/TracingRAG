@@ -9,6 +9,9 @@ from .promotion import (
     ConflictType,
     EdgeUpdate,
     PromotionCandidate,
+    PromotionEvaluation,
+    PromotionMode,
+    PromotionPolicy,
     PromotionRequest,
     PromotionResult,
     PromotionTrigger,
@@ -47,6 +50,7 @@ __all__ = [
     "ContextBudget",
     "TokenEstimate",
     # Promotion models
+    "PromotionMode",
     "PromotionTrigger",
     "ConflictType",
     "ConflictResolutionStrategy",
@@ -59,4 +63,6 @@ __all__ = [
     "PromotionCandidate",
     "PromotionResult",
     "PromotionRequest",
+    "PromotionPolicy",
+    "PromotionEvaluation",
 ]

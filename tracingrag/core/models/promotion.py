@@ -2,10 +2,17 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+
+class PromotionMode(str, Enum):
+    """Modes for promotion automation"""
+
+    MANUAL = "manual"  # Only on explicit user request
+    AUTOMATIC = "automatic"  # LLM decides and executes
 
 
 class PromotionTrigger(str, Enum):
@@ -225,4 +232,79 @@ class PromotionRequest(BaseModel):
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict, description="Additional metadata"
+    )
+
+
+class PromotionPolicy(BaseModel):
+    """Policy configuration for memory promotion automation"""
+
+    mode: PromotionMode = Field(
+        default=PromotionMode.MANUAL, description="Automation mode"
+    )
+
+    # Detection thresholds
+    version_count_threshold: int = Field(
+        default=5, ge=2, description="Min versions before considering promotion"
+    )
+    time_threshold_days: int = Field(
+        default=7, ge=1, description="Days since last promotion before considering"
+    )
+    confidence_threshold: float = Field(
+        default=0.8, ge=0.0, le=1.0, description="Min confidence for auto-promotion"
+    )
+
+    # LLM-based evaluation
+    use_llm_evaluation: bool = Field(
+        default=True, description="Use LLM to evaluate promotion necessity"
+    )
+    evaluation_model: str = Field(
+        default="deepseek/deepseek-chat-v3-0324:free",
+        description="Model for promotion evaluation",
+    )
+
+    # Safety settings
+    require_approval_for_conflicts: bool = Field(
+        default=True, description="Require approval if conflicts detected"
+    )
+    notify_on_auto_promotion: bool = Field(
+        default=True, description="Notify user after automatic promotion"
+    )
+    dry_run: bool = Field(
+        default=False, description="Simulate promotions without executing"
+    )
+
+    # Trigger-specific settings
+    enabled_triggers: list[PromotionTrigger] = Field(
+        default_factory=lambda: [
+            PromotionTrigger.AUTO_VERSION_COUNT,
+            PromotionTrigger.AUTO_TIME_BASED,
+        ],
+        description="Which auto-promotion triggers are enabled",
+    )
+
+    # Resource limits
+    max_concurrent_promotions: int = Field(
+        default=3, ge=1, le=10, description="Max concurrent promotions in batch"
+    )
+    max_candidates_per_scan: int = Field(
+        default=20, ge=1, description="Max candidates to evaluate per scan"
+    )
+
+
+class PromotionEvaluation(BaseModel):
+    """Result of evaluating whether a topic should be promoted"""
+
+    topic: str = Field(..., description="Topic evaluated")
+    should_promote: bool = Field(..., description="Whether promotion is recommended")
+    confidence: float = Field(
+        ..., ge=0.0, le=1.0, description="Confidence in recommendation"
+    )
+    priority: int = Field(..., ge=1, le=10, description="Priority (1=low, 10=high)")
+    trigger: PromotionTrigger = Field(..., description="What triggered evaluation")
+    reasoning: str = Field(..., description="Explanation of decision")
+    metrics: dict[str, Any] = Field(
+        default_factory=dict, description="Metrics used in evaluation"
+    )
+    timestamp: datetime = Field(
+        default_factory=datetime.utcnow, description="When evaluation occurred"
     )

@@ -476,3 +476,91 @@ class TestQualityControl:
         check_types = [c.check_type for c in checks]
         assert QualityCheckType.HALLUCINATION in check_types
         assert QualityCheckType.CITATION in check_types
+
+
+class TestAutomaticPromotion:
+    """Test automatic promotion features"""
+
+    def test_promotion_mode_enum(self):
+        """Test promotion mode enum values"""
+        from tracingrag.core.models.promotion import PromotionMode
+
+        assert PromotionMode.MANUAL == "manual"
+        assert PromotionMode.AUTOMATIC == "automatic"
+
+    def test_promotion_policy_creation(self):
+        """Test creating a promotion policy"""
+        from tracingrag.core.models.promotion import PromotionPolicy, PromotionMode
+
+        policy = PromotionPolicy(
+            mode=PromotionMode.AUTOMATIC,
+            version_count_threshold=10,
+            confidence_threshold=0.9,
+        )
+
+        assert policy.mode == PromotionMode.AUTOMATIC
+        assert policy.version_count_threshold == 10
+        assert policy.confidence_threshold == 0.9
+        assert policy.use_llm_evaluation is True
+
+    def test_promotion_policy_defaults(self):
+        """Test promotion policy default values"""
+        from tracingrag.core.models.promotion import PromotionPolicy, PromotionMode
+
+        policy = PromotionPolicy()
+
+        assert policy.mode == PromotionMode.MANUAL
+        assert policy.version_count_threshold == 5
+        assert policy.time_threshold_days == 7
+        assert policy.confidence_threshold == 0.8
+        assert policy.use_llm_evaluation is True
+
+    def test_promotion_evaluation_creation(self):
+        """Test creating a promotion evaluation"""
+        from tracingrag.core.models.promotion import (
+            PromotionEvaluation,
+            PromotionTrigger,
+        )
+
+        eval = PromotionEvaluation(
+            topic="test_topic",
+            should_promote=True,
+            confidence=0.9,
+            priority=8,
+            trigger=PromotionTrigger.AUTO_VERSION_COUNT,
+            reasoning="High version count with significant changes",
+            metrics={"version_count": 10},
+        )
+
+        assert eval.should_promote is True
+        assert eval.confidence == 0.9
+        assert eval.priority == 8
+
+    @pytest.mark.asyncio
+    async def test_promotion_service_with_policy(self):
+        """Test promotion service instantiation with policy"""
+        from tracingrag.services.promotion import PromotionService
+        from tracingrag.core.models.promotion import PromotionPolicy, PromotionMode
+
+        policy = PromotionPolicy(mode=PromotionMode.AUTOMATIC)
+        service = PromotionService(policy=policy)
+
+        assert service.policy.mode == PromotionMode.AUTOMATIC
+        assert service.policy.version_count_threshold == 5
+
+    @pytest.mark.asyncio
+    async def test_evaluate_after_insertion_manual_mode(self):
+        """Test that evaluate_after_insertion returns None in manual mode"""
+        from tracingrag.services.promotion import PromotionService
+        from tracingrag.core.models.promotion import PromotionPolicy, PromotionMode
+        from uuid import uuid4
+
+        policy = PromotionPolicy(mode=PromotionMode.MANUAL)
+        service = PromotionService(policy=policy)
+
+        result = await service.evaluate_after_insertion(
+            topic="test_topic", new_state_id=uuid4()
+        )
+
+        # Should return None in manual mode
+        assert result is None
