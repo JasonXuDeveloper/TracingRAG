@@ -28,34 +28,82 @@ The examples below show novel/NPC/project patterns, but the same generic primiti
 
 ---
 
-## 1. Structured Entity Types (User-Defined)
+## 1. Using Metadata for Domain-Specific Structure
 
 ### Concept
-TracingRAG doesn't prescribe entity types. You define whatever types your domain needs using the `entity_type` string field and structure them with `entity_schema`.
+TracingRAG provides a completely generic `metadata` field (dict) where you structure your domain-specific data however you want. No prescribed fields, no suggested schemas - total flexibility.
 
 ### Core Data Model (Generic)
 
 ```python
 class MemoryState(BaseModel):
-    # ... core fields ...
-
-    # User-defined entity typing (domain-agnostic)
-    entity_type: Optional[str] = None  # Any string: "character", "bug", "api_endpoint", etc.
-    entity_schema: Optional[dict] = None  # Your custom structured data
+    topic: str  # What this memory is about
+    content: str  # The actual information
+    metadata: dict[str, Any]  # YOUR custom structure goes here
+    tags: list[str]  # Optional tags for filtering
+    # ... system fields (timestamp, embedding, etc.) ...
 ```
 
-**Examples of entity_type values across domains:**
-- Novel writing: "character", "location", "plot_thread", "world_rule"
-- Software dev: "bug", "feature", "api_endpoint", "database_schema"
-- Research: "paper", "experiment", "hypothesis", "dataset"
-- Medical: "patient", "diagnosis", "treatment", "symptom"
-- Business: "customer", "transaction", "strategy", "competitor"
+**Example metadata structures across domains:**
 
-### Character Entity Schema
+Novel writing:
 ```python
-{
-    "entity_type": "character",
-    "entity_schema": {
+metadata = {
+    "type": "character",
+    "name": "Sarah",
+    "personality": ["brave", "impulsive"],
+    "age": 25,
+    "arc": "naive_to_wise"
+}
+```
+
+Software development:
+```python
+metadata = {
+    "category": "bug",
+    "severity": "high",
+    "component": "auth",
+    "affected_versions": ["1.2.0", "1.2.1"]
+}
+```
+
+Research:
+```python
+metadata = {
+    "type": "experiment",
+    "field": "biology",
+    "methodology": "controlled trial",
+    "confidence": 0.95
+}
+```
+
+Medical records:
+```python
+metadata = {
+    "record_type": "diagnosis",
+    "patient_id": "P12345",
+    "condition": "hypertension",
+    "severity": "moderate"
+}
+```
+
+Business intelligence:
+```python
+metadata = {
+    "entity": "customer",
+    "segment": "enterprise",
+    "revenue_tier": "high",
+    "churn_risk": "low"
+}
+```
+
+### Example: Character State (Novel Writing)
+```python
+create_memory(
+    topic="character/sarah",
+    content="Sarah is a brave wizard learning to control her powers",
+    metadata={
+        "type": "character",
         "name": "Sarah",
         "personality_traits": ["brave", "impulsive", "loyal"],
         "age": 25,
@@ -69,38 +117,44 @@ class MemoryState(BaseModel):
         },
         "physical_description": "Tall, red hair, green eyes",
         "character_arc": "naive_to_wise"
-    }
-}
+    },
+    tags=["character", "protagonist"]
+)
 ```
 
-### Location Entity Schema
+### Example: Location State (Novel Writing)
 ```python
-{
-    "entity_type": "location",
-    "entity_schema": {
+create_memory(
+    topic="location/tavern_of_lost",
+    content="Dark, smoky tavern in lower district with hidden secrets",
+    metadata={
+        "type": "location",
         "name": "Tavern of the Lost",
-        "type": "building",
+        "location_type": "building",
         "region": "Capital City",
-        "description": "Dark, smoky tavern in lower district",
         "notable_features": ["hidden back room", "suspicious bartender"],
         "atmosphere": "tense",
         "first_appeared": "chapter_12"
-    }
-}
+    },
+    tags=["location", "urban"]
+)
 ```
 
-### World Rule Entity Schema
+### Example: World Rule State (Novel Writing)
 ```python
-{
-    "entity_type": "world_rule",
-    "entity_schema": {
+create_memory(
+    topic="world_rule/magic_cost",
+    content="Magic exhausts user's life force with certain exceptions",
+    metadata={
+        "type": "world_rule",
         "category": "magic_system",
         "rule": "Magic exhausts user's life force",
         "exceptions": ["ley line locations", "full moon nights"],
         "established_in": "chapter_3",
         "last_demonstrated": "chapter_87"
-    }
-}
+    },
+    tags=["world_rule", "magic_system"]
+)
 ```
 
 **Benefits:**
@@ -241,7 +295,8 @@ Chapter 100: Sarah discovers parents were murdered
 truth = create_memory(
     topic="sarah_parents_death",
     content="Parents were murdered by the king, not accident",
-    entity_type="event"
+    metadata={"type": "event", "significance": "high"},
+    tags=["character_knowledge", "plot_critical"]
 )
 
 # Sarah knows this
@@ -431,8 +486,8 @@ class ConsistencyChecker:
         """Ensure world rules aren't violated"""
         issues = []
 
-        # Get established world rules
-        rules = get_all_states(entity_type="world_rule")
+        # Get established world rules (user defined their world rules with type="world_rule" in metadata)
+        rules = get_all_states(metadata_filter={"type": "world_rule"})
 
         for rule in rules:
             if violates_rule(content, rule):
