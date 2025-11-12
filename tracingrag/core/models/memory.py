@@ -32,6 +32,17 @@ class RelationshipType(str, Enum):
     CONTEXT_FOR = "context_for"  # State A provides context for state B
     EXAMPLE_OF = "example_of"  # State A is an example of state B
 
+    # Consolidation relationships
+    SUMMARIZES = "summarizes"  # State A summarizes state B (for consolidation)
+
+
+class StorageTier(str, Enum):
+    """Storage tiers for memory lifecycle management"""
+
+    WORKING = "working"  # Hot storage, frequently accessed
+    ACTIVE = "active"  # Normal storage, regularly accessed
+    ARCHIVED = "archived"  # Cold storage, rarely accessed
+
 
 class MemoryState(BaseModel):
     """A single state in a memory trace representing knowledge at a point in time"""
@@ -52,6 +63,32 @@ class MemoryState(BaseModel):
     )
     source: Optional[str] = Field(default=None, description="Where this information came from")
     created_by: Optional[str] = Field(default=None, description="Who/what created this state")
+
+    # Human memory simulation fields
+    access_count: int = Field(default=0, description="Number of times accessed")
+    last_accessed: datetime = Field(default_factory=datetime.utcnow)
+    importance_score: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Learned importance (0-1)"
+    )
+    memory_strength: float = Field(
+        default=1.0, ge=0.0, le=1.0, description="Current memory strength (decays over time)"
+    )
+    storage_tier: StorageTier = Field(default=StorageTier.ACTIVE)
+
+    # Consolidation tracking
+    consolidated_from: Optional[list[UUID]] = Field(
+        default=None, description="State IDs this was consolidated from"
+    )
+    is_consolidated: bool = Field(default=False, description="Is this a consolidated summary?")
+    consolidation_level: int = Field(
+        default=0, description="0=raw, 1=daily, 2=weekly, 3=monthly"
+    )
+
+    # Diff-based storage for efficiency
+    diff_from_parent: Optional[str] = Field(
+        default=None, description="Diff from parent state (for storage efficiency)"
+    )
+    is_delta: bool = Field(default=False, description="Is this stored as diff?")
 
     class Config:
         json_schema_extra = {
