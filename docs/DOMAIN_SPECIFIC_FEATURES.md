@@ -28,29 +28,28 @@ The examples below show novel/NPC/project patterns, but the same generic primiti
 
 ---
 
-## 1. Structured Entity Types (Critical for Novels/Games)
+## 1. Structured Entity Types (User-Defined)
 
-### Problem
-Current design treats all memories as generic "states". But novels/games have specific entity types with specific properties.
+### Concept
+TracingRAG doesn't prescribe entity types. You define whatever types your domain needs using the `entity_type` string field and structure them with `entity_schema`.
 
-### Solution: Entity Type System
+### Core Data Model (Generic)
 
 ```python
-class EntityType(str, Enum):
-    CHARACTER = "character"
-    LOCATION = "location"
-    PLOT_THREAD = "plot_thread"
-    WORLD_RULE = "world_rule"
-    FACTION = "faction"
-    ITEM = "item"
-    EVENT = "event"
-
 class MemoryState(BaseModel):
-    # ... existing fields ...
+    # ... core fields ...
 
-    entity_type: Optional[EntityType] = None  # NEW
-    entity_schema: Optional[dict] = None  # Type-specific fields
+    # User-defined entity typing (domain-agnostic)
+    entity_type: Optional[str] = None  # Any string: "character", "bug", "api_endpoint", etc.
+    entity_schema: Optional[dict] = None  # Your custom structured data
 ```
+
+**Examples of entity_type values across domains:**
+- Novel writing: "character", "location", "plot_thread", "world_rule"
+- Software dev: "bug", "feature", "api_endpoint", "database_schema"
+- Research: "paper", "experiment", "hypothesis", "dataset"
+- Medical: "patient", "diagnosis", "treatment", "symptom"
+- Business: "customer", "transaction", "strategy", "competitor"
 
 ### Character Entity Schema
 ```python
@@ -242,7 +241,7 @@ Chapter 100: Sarah discovers parents were murdered
 truth = create_memory(
     topic="sarah_parents_death",
     content="Parents were murdered by the king, not accident",
-    entity_type=EntityType.EVENT
+    entity_type="event"
 )
 
 # Sarah knows this
@@ -433,7 +432,7 @@ class ConsistencyChecker:
         issues = []
 
         # Get established world rules
-        rules = get_all_states(entity_type=EntityType.WORLD_RULE)
+        rules = get_all_states(entity_type="world_rule")
 
         for rule in rules:
             if violates_rule(content, rule):
@@ -831,7 +830,7 @@ class QueryTemplates:
 
     def unresolved_plots(self):
         """All unresolved plot threads"""
-        return query_unresolved(entity_type=EntityType.PLOT_THREAD)
+        return query_unresolved(entity_type="plot_thread")
 
     def volume_summary(self, volume: int):
         """Summary of entire volume"""
@@ -904,7 +903,7 @@ novel = create_project("epic_fantasy_saga")
 
 # Define main character
 sarah = create_entity(
-    type=EntityType.CHARACTER,
+    type="character",
     name="Sarah",
     schema={
         "personality": ["brave", "impulsive"],
@@ -924,7 +923,7 @@ sarah_arc = create_character_arc(
 chapter_1 = create_memory(
     topic="novel/volume_1/arc_1/chapter_1",
     content="Sarah discovers she has magic powers...",
-    entity_type=EntityType.EVENT
+    entity_type="event"
 )
 
 # Track character knowledge

@@ -27,12 +27,11 @@ Project Memory (v1) → Project Memory (v2) → Project Memory (v3)
 - `embedding`: Vector representation for semantic search
 - `metadata`: Additional context (source, confidence, etc.)
 
-**Human Memory Simulation:**
-- `access_count`: How many times accessed (reinforcement learning)
-- `last_accessed`: When last retrieved (recency tracking)
-- `importance_score`: Learned importance 0-1 (salience)
-- `memory_strength`: Current strength 0-1 (decays like Ebbinghaus forgetting curve)
-- `storage_tier`: working/active/archived (human memory tiers)
+**Analytics & Storage Management:**
+- `access_count`: How many times accessed (analytics only, not used for ranking)
+- `last_accessed`: When last retrieved (analytics only)
+- `importance_score`: Learned importance 0-1 (can inform edge weights)
+- `storage_tier`: working/active/archived (storage optimization)
 
 **Consolidation:**
 - `consolidated_from`: States this summarizes
@@ -400,48 +399,37 @@ class Trace(BaseModel):
 
 ## Key Algorithms
 
-### 1. Memory-Strength-Aware Retrieval (Ranking, Not Filtering)
+### 1. Semantic Retrieval with Latest State Tracking
 ```python
 def search_memories(query: str, time_window: Optional[tuple] = None):
     # Generate query embedding
     query_emb = embed(query)
 
-    # Vector search in Qdrant - NO strength filtering
+    # Vector search in Qdrant - retrieves all relevant states
     candidates = vector_db.search(
         vector=query_emb,
         limit=100,
         filter={
             "timestamp": time_window if time_window else None
-            # Note: NO memory_strength filter - we rank, not filter
         }
     )
 
-    # Get latest states from each trace
+    # Get latest states from each trace (O(1) lookup via materialized view)
     latest_states = filter_to_latest_per_trace(candidates)
 
-    # RE-RANK using memory strength (not filter out!)
-    for state in latest_states:
-        # Calculate current strength (may have decayed since stored)
-        current_strength = calculate_memory_strength(state)
-
-        # Combined score: semantic similarity × memory strength
-        # This prioritizes relevant AND frequently-accessed memories
-        state.final_score = state.semantic_score * (0.7 + 0.3 * current_strength)
-        # Note: Even 0.0 strength gets 0.7× weight - still retrievable!
-
-    # Sort by combined score
-    latest_states.sort(key=lambda s: s.final_score, reverse=True)
+    # Sort by semantic similarity
+    latest_states.sort(key=lambda s: s.semantic_score, reverse=True)
 
     return latest_states
 ```
 
 **Key Insight:**
-- Memory strength adjusts ranking (0.7× to 1.0× multiplier)
-- Low-strength memories still appear in results, just lower
-- If semantically very relevant, low-strength memory can still rank high
-- Nothing is filtered out based on strength alone
+- Nothing is filtered out - all semantically relevant states retrieved
+- Latest state lookup is O(1) (< 10ms via materialized view)
+- Ranking is based on semantic similarity
+- Edge weights (strength) come into play during graph traversal (see next algorithm)
 
-### 2. Graph-Enhanced Retrieval (Ensures Relevance, Ignores Strength)
+### 2. Graph-Enhanced Retrieval (Edge-Based Relevance)
 ```python
 def graph_enhanced_retrieval(query: str, depth: int = 2):
     # Get initial semantic matches
@@ -451,36 +439,43 @@ def graph_enhanced_retrieval(query: str, depth: int = 2):
     enhanced_results = []
     for match in initial_matches:
         # Get connected states within depth
-        # IMPORTANT: Graph traversal ignores memory_strength
-        # Even "forgotten" (low-strength) memories are found if connected
-        # BUT: Only follows ACTIVE edges (valid_until=None or future)
+        # IMPORTANT: Follows ACTIVE edges regardless of weight
+        # Edge.strength represents contextual relevance, not existence
+        # All connections preserved - strength used for ranking, not filtering
         subgraph = graph_db.traverse(
             start_node=match.id,
             max_depth=depth,
             relationship_types=["relates_to", "causes", "references"],
-            # No strength filter - relevance determined by graph structure
-            # Active filter - only current valid edges
-            only_active=True  # Filters to edges where is_active=True
+            only_active=True,  # Only follows edges where valid_until is None or future
+            include_edge_weights=True  # Include edge.strength for ranking
         )
 
         # Walk backwards in trace for context
         historical_context = get_trace_context(match, steps_back=3)
 
+        # Rank related states by edge strength (contextual relevance)
+        ranked_related = sorted(
+            subgraph,
+            key=lambda s: s.edge_strength,  # Edge weight from traversal
+            reverse=True
+        )
+
         enhanced_results.append({
             "state": match,
-            "related_states": subgraph,  # May include low-strength states!
+            "related_states": ranked_related,
             "historical_context": historical_context
         })
 
     return enhanced_results
 ```
 
-**Example:**
-- Query: "project_alpha status"
-- Finds: project_alpha latest state (high strength, frequently accessed)
-- Graph traversal finds: old_bug_report (low strength, not accessed in months)
-- Result: Bug is included because it's connected to current state, not because of its strength
-- This is exactly what you want: relevance via graph, not recency via strength
+**Key Insight:**
+- Edge.strength represents contextual relevance between states
+- All edges traversed (nothing filtered by strength)
+- Strength used to rank related results
+- Example: project_alpha → bug_report edge might have strength=0.9 (highly relevant)
+  while project_alpha → old_discussion edge might have strength=0.3 (tangentially related)
+- Both connections preserved and traversed, but ranked by contextual importance
 
 ### 3. Memory Promotion Algorithm
 ```python
