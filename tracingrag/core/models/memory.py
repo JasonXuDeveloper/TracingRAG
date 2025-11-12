@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RelationshipType(str, Enum):
@@ -97,8 +97,8 @@ class MemoryState(BaseModel):
         description="Optional user-defined structured data for this entity",
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "topic": "project_alpha_development",
                 "content": "Started implementation of feature X using approach Y. Initial tests passing.",
@@ -108,6 +108,7 @@ class MemoryState(BaseModel):
                 "source": "development_log",
             }
         }
+    )
 
 
 class MemoryEdge(BaseModel):
@@ -147,8 +148,8 @@ class MemoryEdge(BaseModel):
             return True
         return datetime.utcnow() < self.valid_until
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "source_state_id": "550e8400-e29b-41d4-a716-446655440000",
                 "target_state_id": "550e8400-e29b-41d4-a716-446655440001",
@@ -157,6 +158,7 @@ class MemoryEdge(BaseModel):
                 "description": "Bug discovery prompted code review",
             }
         }
+    )
 
 
 class Trace(BaseModel):
@@ -188,14 +190,15 @@ class Trace(BaseModel):
         self.state_ids.append(state_id)
         self.updated_at = datetime.utcnow()
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "topic": "project_alpha_development",
                 "tags": ["project", "development"],
                 "is_active": True,
             }
         }
+    )
 
 
 class QueryContext(BaseModel):

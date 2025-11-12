@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RelationshipType(str, Enum):
@@ -122,8 +122,7 @@ class Edge(BaseModel):
             "metadata": self.custom_metadata,
         }
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class EdgeStrengthFactors(BaseModel):
