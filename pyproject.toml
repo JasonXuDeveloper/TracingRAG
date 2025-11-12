@@ -1,0 +1,129 @@
+[tool.poetry]
+name = "tracingrag"
+version = "0.1.0"
+description = "Enhanced RAG system with temporal tracing and graph relationships"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+license = "MIT"
+packages = [{include = "tracingrag"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+# API Framework
+fastapi = "^0.115.0"
+uvicorn = {extras = ["standard"], version = "^0.32.0"}
+pydantic = "^2.9.0"
+pydantic-settings = "^2.6.0"
+
+# Vector Database
+qdrant-client = "^1.12.0"
+
+# Graph Database
+neo4j = "^5.26.0"
+
+# Database
+sqlalchemy = "^2.0.36"
+asyncpg = "^0.30.0"
+alembic = "^1.14.0"
+psycopg2-binary = "^2.9.10"
+
+# Embeddings
+sentence-transformers = "^3.3.1"
+torch = "^2.5.1"
+
+# LLM Integration
+openai = "^1.54.5"
+langchain = "^0.3.7"
+langchain-openai = "^0.2.9"
+langgraph = "^0.2.45"
+langchain-community = "^0.3.7"
+
+# Utilities
+python-dotenv = "^1.0.1"
+pydantic-core = "^2.27.0"
+httpx = "^0.27.2"
+tenacity = "^9.0.0"
+structlog = "^24.4.0"
+
+# Monitoring
+prometheus-client = "^0.21.0"
+
+[tool.poetry.group.dev.dependencies]
+# Testing
+pytest = "^8.3.3"
+pytest-asyncio = "^0.24.0"
+pytest-cov = "^6.0.0"
+pytest-mock = "^3.14.0"
+
+# Linting and Formatting
+ruff = "^0.7.4"
+mypy = "^1.13.0"
+
+# Type stubs
+types-python-dateutil = "^2.9.0"
+
+# Debugging
+ipython = "^8.29.0"
+ipdb = "^0.13.13"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501",  # line too long, handled by formatter
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "qdrant_client.*",
+    "sentence_transformers.*",
+    "neo4j.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=tracingrag",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
