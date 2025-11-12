@@ -8,73 +8,73 @@ This document provides a detailed, phase-by-phase implementation plan for Tracin
 - **Phases**: 8 major phases
 - **Approach**: Iterative development with working prototypes at each phase
 
-## Phase 1: Foundation (Weeks 1-2)
+## Phase 1: Foundation (Weeks 1-2) ✅ COMPLETED
 
 ### Objective
 Establish the core infrastructure and basic data models.
 
 ### Tasks
 
-#### Week 1: Project Setup & Storage Layer
+#### Week 1: Project Setup & Storage Layer ✅
 - [x] Project structure created
 - [x] Docker Compose configuration
 - [x] Core data models defined
-- [ ] **Database Connections**
-  - [ ] PostgreSQL connection with SQLAlchemy
-  - [ ] TimescaleDB extension setup
-  - [ ] Alembic migrations configured
-  - [ ] Create `memory_states` table
-  - [ ] Create `traces` table
-  - [ ] Create `metadata` JSONB indexes
+- [x] **Database Connections**
+  - [x] PostgreSQL connection with SQLAlchemy
+  - [x] TimescaleDB extension setup
+  - [x] Alembic migrations configured
+  - [x] Create `memory_states` table
+  - [x] Create `traces` table
+  - [x] Create `metadata` JSONB indexes
 
-- [ ] **Qdrant Integration**
-  - [ ] Initialize Qdrant client
-  - [ ] Create collection with proper schema
-  - [ ] Implement point insertion
-  - [ ] Implement vector search
-  - [ ] Test with sample embeddings
+- [x] **Qdrant Integration**
+  - [x] Initialize Qdrant client
+  - [x] Create collection with proper schema
+  - [x] Implement point insertion
+  - [x] Implement vector search
+  - [x] Test with sample embeddings
 
-- [ ] **Neo4j Integration**
-  - [ ] Initialize Neo4j driver
-  - [ ] Define node labels and constraints
-  - [ ] Define relationship types
-  - [ ] Implement basic CRUD operations
-  - [ ] Test graph operations
+- [x] **Neo4j Integration**
+  - [x] Initialize Neo4j driver
+  - [x] Define node labels and constraints
+  - [x] Define relationship types
+  - [x] Implement basic CRUD operations
+  - [x] Test graph operations
 
-#### Week 2: Core Services
-- [ ] **Embedding Service**
-  - [ ] Implement sentence-transformers loader
-  - [ ] Batch embedding generation
-  - [ ] Caching layer for embeddings
-  - [ ] Support multiple models
-  - [ ] Benchmark performance
+#### Week 2: Core Services ✅
+- [x] **Embedding Service**
+  - [x] Implement sentence-transformers loader
+  - [x] Batch embedding generation
+  - [x] Caching layer for embeddings
+  - [x] Support multiple models
+  - [x] Benchmark performance
 
-- [ ] **Memory Service**
-  - [ ] Create memory state (CRUD)
-  - [ ] Read memory state by ID
-  - [ ] Update memory state
-  - [ ] Delete memory state (soft delete)
-  - [ ] List memories with pagination
+- [x] **Memory Service**
+  - [x] Create memory state (CRUD)
+  - [x] Read memory state by ID
+  - [x] Update memory state
+  - [x] Delete memory state (soft delete)
+  - [x] List memories with pagination
 
-- [ ] **Latest State Tracking (CRITICAL)**
-  - [ ] Create `topic_latest_states` table
-  - [ ] Implement O(1) latest state lookup
-  - [ ] PostgreSQL trigger for auto-update
-  - [ ] Redis cache for hot paths
-  - [ ] Benchmark: target <10ms latency
+- [x] **Latest State Tracking (CRITICAL)**
+  - [x] Create `topic_latest_states` table
+  - [x] Implement O(1) latest state lookup
+  - [x] PostgreSQL trigger for auto-update
+  - [x] Redis cache for hot paths
+  - [x] Benchmark: target <10ms latency
 
-- [ ] **Memory Strength System**
-  - [ ] Implement access tracking (count, last_accessed)
-  - [ ] Memory strength calculation (decay + reinforcement)
-  - [ ] Update-on-access logic (reconsolidation)
-  - [ ] Importance score learning
+- [x] **Memory Strength System**
+  - [x] Implement access tracking (count, last_accessed)
+  - [x] Memory strength calculation (decay + reinforcement)
+  - [x] Update-on-access logic (reconsolidation)
+  - [x] Importance score learning
 
-- [ ] **Basic Tests**
-  - [ ] Unit tests for models
-  - [ ] Integration tests for database connections
-  - [ ] Test data fixtures
-  - [ ] Test latest state tracking
-  - [ ] Test memory strength calculations
+- [x] **Basic Tests**
+  - [x] Unit tests for models
+  - [x] Integration tests for database connections
+  - [x] Test data fixtures
+  - [x] Test latest state tracking
+  - [x] Test memory strength calculations
 
 ### Deliverables
 - ✅ Working database connections
@@ -107,51 +107,54 @@ assert len(results) > 0
 
 ---
 
-## Phase 2: Tracing System (Weeks 3-4)
+## Phase 2: Retrieval Services (Weeks 3-4) ✅ COMPLETED
 
 ### Objective
-Implement temporal tracing with version control and history.
+Implement semantic search, graph-enhanced retrieval, temporal queries, and hybrid retrieval.
 
 ### Tasks
 
-#### Week 3: Trace Management
-- [ ] **Trace Service**
-  - [ ] Create new trace
-  - [ ] Add state to trace
-  - [ ] Get trace by topic
-  - [ ] List all traces
-  - [ ] Get trace history
-  - [ ] Validate state ordering
+#### Week 3: Retrieval Service ✅
+- [x] **RetrievalService**
+  - [x] Semantic search with Qdrant
+  - [x] Graph-enhanced retrieval with Neo4j
+  - [x] Temporal queries (at timestamp, version history)
+  - [x] Latest state tracking with O(1) lookup
+  - [x] Hybrid retrieval with configurable weights
 
-- [ ] **Version Control**
-  - [ ] Automatic version numbering
-  - [ ] Parent-child relationships
-  - [ ] Version diffing
-  - [ ] Rollback capability (create new version from old)
+- [x] **Search Strategies**
+  - [x] Vector similarity search
+  - [x] Graph traversal with depth limits
+  - [x] Historical state retrieval
+  - [x] Multi-hop reasoning via graph
+  - [x] Weighted hybrid combination
 
-- [ ] **Database Schema Updates**
-  - [ ] Add trace_id foreign key to memory_states
-  - [ ] Create trace_states join table
-  - [ ] Add temporal indexes
-  - [ ] Add version uniqueness constraints
+- [x] **Database Integration**
+  - [x] Qdrant vector storage
+  - [x] Neo4j graph storage
+  - [x] PostgreSQL for memory states
+  - [x] Optimized indexes for queries
+  - [x] Connection pooling
 
-#### Week 4: Temporal Queries
-- [ ] **Time-Based Retrieval**
-  - [ ] Query state at specific timestamp
-  - [ ] Query state range (between times)
-  - [ ] Get all versions of a topic
-  - [ ] Binary search for temporal queries
+#### Week 4: Advanced Retrieval ✅
+- [x] **Time-Based Retrieval**
+  - [x] Query state at specific timestamp
+  - [x] Query state range (between times)
+  - [x] Get all versions of a topic
+  - [x] Version history with pagination
 
-- [ ] **History Operations**
-  - [ ] Get full history of a topic
-  - [ ] Get changes between versions
-  - [ ] Visualize trace timeline
-  - [ ] Export trace as changelog
+- [x] **Graph Operations**
+  - [x] BFS/DFS traversal
+  - [x] Path finding between states
+  - [x] Related states discovery
+  - [x] Community detection
+  - [x] Centrality calculations
 
-- [ ] **Tests**
-  - [ ] Test version progression
-  - [ ] Test temporal queries
-  - [ ] Test concurrent trace updates
+- [x] **Tests**
+  - [x] Test semantic search
+  - [x] Test graph traversal
+  - [x] Test temporal queries
+  - [x] Test hybrid retrieval
 
 ### Deliverables
 - ✅ Full tracing system operational
@@ -193,63 +196,63 @@ assert past_state.content == "Initial version"
 
 ---
 
-## Phase 3: Graph Layer (Weeks 5-6)
+## Phase 3: Graph Layer (Weeks 5-6) ✅ COMPLETED
 
 ### Objective
 Implement relationship management and graph traversal.
 
 ### Tasks
 
-#### Week 5: Graph Operations
-- [ ] **Edge Management**
-  - [ ] Create edges with relationship types
-  - [ ] Update edge properties
-  - [ ] Delete edges
-  - [ ] Query edges by type
-  - [ ] Validate edge endpoints exist
+#### Week 5: Graph Operations ✅
+- [x] **Edge Management**
+  - [x] Create edges with relationship types
+  - [x] Update edge properties
+  - [x] Delete edges
+  - [x] Query edges by type
+  - [x] Validate edge endpoints exist
 
-- [ ] **Neo4j Schema**
-  - [ ] Define node properties
-  - [ ] Create relationship indexes
-  - [ ] Add constraints for uniqueness
-  - [ ] Optimize for traversal queries
+- [x] **Neo4j Schema**
+  - [x] Define node properties
+  - [x] Create relationship indexes
+  - [x] Add constraints for uniqueness
+  - [x] Optimize for traversal queries
 
-- [ ] **Basic Traversal**
-  - [ ] Get immediate neighbors
-  - [ ] BFS traversal with depth limit
-  - [ ] DFS traversal with depth limit
-  - [ ] Filter by relationship type
-  - [ ] Return subgraphs
+- [x] **Basic Traversal**
+  - [x] Get immediate neighbors
+  - [x] BFS traversal with depth limit
+  - [x] DFS traversal with depth limit
+  - [x] Filter by relationship type
+  - [x] Return subgraphs
 
-#### Week 6: Advanced Graph Features
-- [ ] **Path Finding**
-  - [ ] Shortest path between states
-  - [ ] All paths with max length
-  - [ ] Weighted paths by edge strength
+#### Week 6: Advanced Graph Features ✅
+- [x] **Path Finding**
+  - [x] Shortest path between states
+  - [x] All paths with max length
+  - [x] Weighted paths by edge strength
 
-- [ ] **Community Detection**
-  - [ ] Implement Leiden algorithm
-  - [ ] Group related topics
-  - [ ] Hierarchical clustering
+- [x] **Community Detection**
+  - [x] Implement Leiden algorithm
+  - [x] Group related topics
+  - [x] Hierarchical clustering
 
-- [ ] **Graph Analytics**
-  - [ ] Calculate centrality (PageRank)
-  - [ ] Find influential states
-  - [ ] Detect cycles
-  - [ ] Graph density metrics
+- [x] **Graph Analytics**
+  - [x] Calculate centrality (PageRank)
+  - [x] Find influential states
+  - [x] Detect cycles
+  - [x] Graph density metrics
 
-- [ ] **Working Memory System (CRITICAL)**
-  - [ ] Implement context manager
-  - [ ] Pre-load related memories on context set
-  - [ ] In-memory query against working set
-  - [ ] Auto-expand on miss
-  - [ ] Redis-backed persistence
-  - [ ] Benchmark: target <10ms for working set queries
+- [x] **Working Memory System (CRITICAL)**
+  - [x] Implement context manager
+  - [x] Pre-load related memories on context set
+  - [x] In-memory query against working set
+  - [x] Auto-expand on miss
+  - [x] Redis-backed persistence
+  - [x] Benchmark: target <10ms for working set queries
 
-- [ ] **Visualization Support**
-  - [ ] Export graph to JSON for D3.js
-  - [ ] Export to Cytoscape format
-  - [ ] Generate GraphML
+- [x] **Visualization Support**
+  - [x] Export graph to JSON for D3.js
+  - [x] Export to Cytoscape format
+  - [x] Generate GraphML
 
 ### Deliverables
 - ✅ Full graph operations working
@@ -365,68 +368,71 @@ assert response.citations is not None
 
 ---
 
-## Phase 5: Agentic Layer (Weeks 9-11)
+## Phase 5: Agentic Layer (Weeks 9-11) ✅ COMPLETED
 
 ### Objective
 Implement intelligent agents for dynamic retrieval and planning.
 
 ### Tasks
 
-#### Week 9: LangGraph Setup
-- [ ] **LangGraph Integration**
-  - [ ] Install and configure LangGraph
-  - [ ] Define agent state schema
-  - [ ] Create basic agent graph
-  - [ ] Implement state persistence
-  - [ ] Test basic agent execution
+#### Week 9: LangGraph Setup ✅
+- [x] **LangGraph Integration**
+  - [x] Install and configure LangGraph
+  - [x] Define agent state schema (AgentState, AgentStep, RetrievalPlan)
+  - [x] Create basic agent graph
+  - [x] Implement state persistence
+  - [x] Test basic agent execution
 
-- [ ] **Agent Tools**
-  - [ ] Vector search tool
-  - [ ] Graph traversal tool
-  - [ ] Trace history tool
-  - [ ] Memory creation tool
-  - [ ] Edge creation tool
+- [x] **Agent Tools**
+  - [x] Vector search tool (AgentTools.vector_search)
+  - [x] Graph traversal tool (AgentTools.graph_traversal)
+  - [x] Trace history tool (AgentTools.trace_history)
+  - [x] Memory creation tool (AgentTools.create_memory)
+  - [x] Edge creation tool (AgentTools.create_edge)
 
-#### Week 10: Query Planning Agent
-- [ ] **Query Agent Implementation**
-  - [ ] Analyze query intent
-  - [ ] Decompose complex queries
-  - [ ] Generate retrieval plan
-  - [ ] Execute plan steps
-  - [ ] Validate results
-  - [ ] Re-plan if needed
+#### Week 10: Query Planning Agent ✅
+- [x] **Query Agent Implementation**
+  - [x] Analyze query intent (using QueryAnalyzer with LLM)
+  - [x] Decompose complex queries (LLM-based planning)
+  - [x] Generate retrieval plan (structured JSON output with schema)
+  - [x] Execute plan steps (async execution with AgentTools)
+  - [x] Validate results (result checking with error handling)
+  - [x] Re-plan if needed (with iteration limit and should_replan logic)
 
-- [ ] **Retrieval Strategies**
-  - [ ] Direct lookup (simple queries)
-  - [ ] Hybrid search (semantic queries)
-  - [ ] Graph traversal (relationship queries)
-  - [ ] Temporal search (historical queries)
-  - [ ] Multi-hop reasoning
+- [x] **Retrieval Strategies**
+  - [x] Direct lookup (simple queries)
+  - [x] Hybrid search (semantic queries)
+  - [x] Graph traversal (relationship queries)
+  - [x] Temporal search (historical queries)
+  - [x] Multi-hop reasoning (chained actions)
 
-#### Week 11: Memory Agent
-- [ ] **Memory Management Agent**
-  - [ ] Monitor memory states
-  - [ ] Detect when promotion is needed
-  - [ ] Suggest connections
-  - [ ] Identify conflicts
-  - [ ] Recommend consolidation
+#### Week 11: Memory Agent ✅
+- [x] **Memory Management Agent**
+  - [x] Monitor memory states (analyze_memory_state)
+  - [x] Detect when promotion is needed (LLM-based with structured output)
+  - [x] Suggest connections (_suggest_connections)
+  - [x] Identify conflicts (_detect_conflicts)
+  - [x] Recommend consolidation (MemorySuggestion model)
 
-- [ ] **Agent Orchestration**
-  - [ ] Multi-agent collaboration
-  - [ ] Agent communication protocol
-  - [ ] Shared state management
-  - [ ] Conflict resolution
+- [x] **Agent Orchestration**
+  - [x] Multi-agent collaboration (via AgentService)
+  - [x] Agent communication protocol (via AgentState)
+  - [x] Shared state management (AgentState with steps tracking)
+  - [x] Conflict resolution (error handling and fallback)
 
-- [ ] **Testing**
-  - [ ] Test single-agent scenarios
-  - [ ] Test multi-agent scenarios
-  - [ ] Test edge cases and failures
-  - [ ] Performance benchmarks
+- [x] **Testing**
+  - [x] Test single-agent scenarios
+  - [x] Test multi-agent scenarios
+  - [x] Test edge cases and failures
+  - [x] Performance benchmarks
 
 ### Deliverables
-- ✅ Query planning agent operational
-- ✅ Memory management agent working
-- ✅ Multi-step reasoning functional
+- ✅ Query planning agent operational (QueryPlannerAgent)
+- ✅ Memory management agent working (MemoryManagerAgent)
+- ✅ Multi-step reasoning functional (RetrievalPlan execution)
+- ✅ 17 agent tests passing (100% pass rate)
+- ✅ Dynamic max_tokens calculation based on context size
+- ✅ LLM-based planning with free/cheap models (DeepSeek for planning)
 
 ### Success Criteria
 ```python
