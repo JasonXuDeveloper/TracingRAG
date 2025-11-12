@@ -1,5 +1,14 @@
 """Data models for TracingRAG"""
 
-from .memory import MemoryState, MemoryEdge, Trace
+from .graph import Edge, EdgeStrengthFactors, GraphStats, RelationshipType
+from .memory import MemoryEdge, MemoryState, Trace
 
-__all__ = ["MemoryState", "MemoryEdge", "Trace"]
+__all__ = [
+    "MemoryState",
+    "MemoryEdge",
+    "Trace",
+    "Edge",
+    "EdgeStrengthFactors",
+    "GraphStats",
+    "RelationshipType",
+]
