@@ -87,6 +87,16 @@ class MemoryState(BaseModel):
     )
     is_delta: bool = Field(default=False, description="Is this stored as diff?")
 
+    # Optional entity typing pattern (user-defined, not prescribed)
+    entity_type: Optional[str] = Field(
+        default=None,
+        description="Optional user-defined entity type (e.g., 'character', 'bug', 'patient')",
+    )
+    entity_schema: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Optional user-defined structured data for this entity",
+    )
+
     class Config:
         json_schema_extra = {
             "example": {
