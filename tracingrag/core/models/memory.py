@@ -44,31 +44,6 @@ class StorageTier(str, Enum):
     ARCHIVED = "archived"  # Cold storage, rarely accessed
 
 
-class EntityType(str, Enum):
-    """Types of entities for domain-specific use cases (novels, games, etc.)"""
-
-    # Generic
-    GENERIC = "generic"  # Default, untyped memory
-
-    # Narrative entities
-    CHARACTER = "character"  # Character in story/game
-    LOCATION = "location"  # Physical location
-    PLOT_THREAD = "plot_thread"  # Story plot line
-    EVENT = "event"  # Significant event
-    RELATIONSHIP = "relationship"  # Relationship between entities
-
-    # World building
-    WORLD_RULE = "world_rule"  # Rules of the world (physics, magic, etc.)
-    FACTION = "faction"  # Group, organization, nation
-    ITEM = "item"  # Significant object
-    CONCEPT = "concept"  # Abstract concept or idea
-
-    # Hierarchical
-    VOLUME = "volume"  # Volume in a series
-    ARC = "arc"  # Story arc
-    CHAPTER = "chapter"  # Chapter or section
-
-
 class MemoryState(BaseModel):
     """A single state in a memory trace representing knowledge at a point in time"""
 
@@ -89,14 +64,11 @@ class MemoryState(BaseModel):
     source: Optional[str] = Field(default=None, description="Where this information came from")
     created_by: Optional[str] = Field(default=None, description="Who/what created this state")
 
-    # Human memory simulation fields
-    access_count: int = Field(default=0, description="Number of times accessed")
+    # Analytics and storage management (not used for retrieval ranking)
+    access_count: int = Field(default=0, description="Number of times accessed (analytics only)")
     last_accessed: datetime = Field(default_factory=datetime.utcnow)
     importance_score: float = Field(
         default=0.5, ge=0.0, le=1.0, description="Learned importance (0-1)"
-    )
-    memory_strength: float = Field(
-        default=1.0, ge=0.0, le=1.0, description="Current memory strength (decays over time)"
     )
     storage_tier: StorageTier = Field(default=StorageTier.ACTIVE)
 
@@ -115,13 +87,14 @@ class MemoryState(BaseModel):
     )
     is_delta: bool = Field(default=False, description="Is this stored as diff?")
 
-    # Domain-specific entity typing (for novels, games, etc.)
-    entity_type: EntityType = Field(
-        default=EntityType.GENERIC, description="Type of entity this memory represents"
+    # Generic entity typing (user-defined, domain-agnostic)
+    entity_type: Optional[str] = Field(
+        default=None,
+        description="User-defined entity type (e.g., 'character', 'bug', 'api_endpoint', 'patient')",
     )
     entity_schema: Optional[dict[str, Any]] = Field(
         default=None,
-        description="Type-specific structured data (e.g., character traits, location props)",
+        description="User-defined structured data for this entity type",
     )
 
     class Config:
