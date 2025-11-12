@@ -71,6 +71,17 @@ class LLMClient:
             "max_tokens": request.max_tokens,
         }
 
+        # Enable structured output if requested
+        if request.json_schema:
+            # Use JSON schema for strict structured output (OpenRouter format)
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": request.json_schema,
+            }
+        elif request.json_mode:
+            # Fallback to simple JSON mode (less strict)
+            payload["response_format"] = {"type": "json_object"}
+
         # Add OpenRouter-specific headers if using OpenRouter
         headers = {}
         if "openrouter.ai" in self.base_url:

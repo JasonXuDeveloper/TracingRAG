@@ -85,6 +85,13 @@ class LLMRequest(BaseModel):
     model: str = Field(default="anthropic/claude-3.5-sonnet", description="Model ID")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1, le=100000)
+    json_mode: bool = Field(
+        default=False, description="Request structured JSON output (simple mode)"
+    )
+    json_schema: dict[str, Any] | None = Field(
+        default=None,
+        description="JSON schema for structured output (preferred over json_mode)",
+    )
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

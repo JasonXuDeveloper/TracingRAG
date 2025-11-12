@@ -10,14 +10,20 @@ from tracingrag.services.llm import LLMClient, get_llm_client
 class QueryAnalyzer:
     """Analyzes queries using LLM to understand intent, type, and requirements"""
 
-    def __init__(self, llm_client: LLMClient | None = None):
+    def __init__(
+        self,
+        llm_client: LLMClient | None = None,
+        default_model: str = "deepseek/deepseek-chat-v3-0324:free",
+    ):
         """
         Initialize query analyzer
 
         Args:
             llm_client: LLM client for query analysis (uses singleton if None)
+            default_model: Default model for query classification (free/cheap model recommended)
         """
         self.llm_client = llm_client or get_llm_client()
+        self.default_model = default_model
 
     async def analyze_query(
         self, query: str, use_llm: bool = True
@@ -56,13 +62,77 @@ class QueryAnalyzer:
         # Create LLM request for structured output
         from tracingrag.core.models.rag import LLMRequest
 
+        # Define JSON schema for query analysis
+        json_schema = {
+            "name": "query_analysis",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "query_type": {
+                        "type": "string",
+                        "enum": [
+                            "status",
+                            "recent",
+                            "overview",
+                            "why",
+                            "how",
+                            "what",
+                            "when",
+                            "comparison",
+                            "general",
+                        ],
+                        "description": "Type of query",
+                    },
+                    "consolidation_level": {
+                        "type": "integer",
+                        "enum": [0, 1, 2, 3],
+                        "description": "Consolidation level (0=RAW, 1=DAILY, 2=WEEKLY, 3=MONTHLY)",
+                    },
+                    "needs_history": {
+                        "type": "boolean",
+                        "description": "Whether historical context is needed",
+                    },
+                    "needs_graph": {
+                        "type": "boolean",
+                        "description": "Whether graph relationships are needed",
+                    },
+                    "time_scope": {
+                        "type": "string",
+                        "enum": ["current", "recent", "historical", "all"],
+                        "description": "Time scope of the query",
+                    },
+                    "entities": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Extracted entities from query",
+                    },
+                    "reasoning": {
+                        "type": "string",
+                        "description": "Brief explanation of classification",
+                    },
+                },
+                "required": [
+                    "query_type",
+                    "consolidation_level",
+                    "needs_history",
+                    "needs_graph",
+                    "time_scope",
+                    "entities",
+                    "reasoning",
+                ],
+                "additionalProperties": False,
+            },
+        }
+
         request = LLMRequest(
             system_prompt=self._get_analysis_system_prompt(),
             user_message=analysis_prompt,
             context="",  # No context needed for analysis
-            model="anthropic/claude-3.5-sonnet",  # Use capable model
+            model=self.default_model,  # Use configurable model (cheap/free recommended)
             temperature=0.0,  # Deterministic for classification
             max_tokens=500,  # Short response
+            json_schema=json_schema,  # Use JSON schema for strict structured output
             metadata={"task": "query_analysis"},
         )
 
@@ -312,12 +382,16 @@ Your classification helps optimize:
 _query_analyzer: QueryAnalyzer | None = None
 
 
-def get_query_analyzer(llm_client: LLMClient | None = None) -> QueryAnalyzer:
+def get_query_analyzer(
+    llm_client: LLMClient | None = None,
+    default_model: str = "deepseek/deepseek-chat-v3-0324:free",
+) -> QueryAnalyzer:
     """
     Get or create query analyzer singleton
 
     Args:
         llm_client: Optional LLM client
+        default_model: Default model for query classification (cheap/free model recommended)
 
     Returns:
         QueryAnalyzer instance
@@ -325,6 +399,8 @@ def get_query_analyzer(llm_client: LLMClient | None = None) -> QueryAnalyzer:
     global _query_analyzer
 
     if _query_analyzer is None:
-        _query_analyzer = QueryAnalyzer(llm_client=llm_client)
+        _query_analyzer = QueryAnalyzer(
+            llm_client=llm_client, default_model=default_model
+        )
 
     return _query_analyzer
