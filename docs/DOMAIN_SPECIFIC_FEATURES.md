@@ -174,7 +174,258 @@ create_memory(
 
 ---
 
-## 2. Relationship Tracking (First-Class, Not Just Edges)
+## 2. Core Principle: Retrieval Layer, Not Decision Engine
+
+### TracingRAG Returns States, Not Decisions
+
+**CRITICAL**: TracingRAG is a **pure retrieval/memory layer**. It returns relevant states and their connections - the LLM/caller interprets and decides what to do with them.
+
+```python
+# ❌ WRONG: Hardcoded decision logic in the system
+def npc_sees(character_a, character_b):
+    traits = get_traits(character_a, character_b)
+    if any(t.entity_schema["trait_type"] == "fear" for t in traits):
+        return "frightened"  # System makes decision
+
+# ✅ RIGHT: Just return the states, let caller decide
+def get_character_context(character_a, character_b):
+    """Return all relevant states - LLM decides what they mean"""
+    return {
+        "relationship": get_latest_state(f"relationship/{character_a}_to_{character_b}"),
+        "traits": query_states(
+            entity_type="personality_trait",
+            filter={"character": character_a, "target": character_b}
+        ),
+        "recent_interactions": get_trace_recent(
+            f"interaction/{character_a}_{character_b}",
+            limit=5
+        )
+    }
+
+# LLM receives context and interprets:
+# "Sarah sees the king. Given her hatred trait (v2), fear trait (high),
+#  recent gratitude from being saved, she feels conflicted..."
+```
+
+**Why This Matters:**
+- **Generic**: System doesn't need domain-specific logic
+- **Flexible**: Same retrieval works for any domain
+- **Interpretable**: LLM can reason about complex situations
+- **Maintainable**: No if/else decision trees to maintain
+
+---
+
+## 3. The Graph as Universal Index
+
+### Latest States + Active Edges = Complete Current Understanding
+
+The graph structure (latest states + active edges) serves as a **universal index** for any domain. When a new conversation starts, the LLM can instantly understand the current state of the world.
+
+**Pattern:**
+1. **Latest states**: O(1) lookup for "what's the current status of X?"
+2. **Active edges**: Show how things currently relate
+3. **Trace history**: Explain why things are the way they are
+
+### Example: Codebase Understanding (New Conversation)
+
+```python
+# New conversation starts - LLM needs to understand the codebase
+
+# Step 1: Get index of all components (latest states)
+components = {
+    "architecture": get_latest_state("project/architecture"),
+    "auth": get_latest_state("component/auth"),
+    "database": get_latest_state("component/database"),
+    "api": get_latest_state("component/api"),
+    "payments": get_latest_state("component/payments"),
+}
+
+# Step 2: Get relationships (active edges only)
+codebase_graph = graph_traverse(
+    start_nodes=[c.id for c in components.values()],
+    edge_types=["depends_on", "calls", "implements"],
+    only_active=True,  # Current dependencies, not historical
+    max_depth=2
+)
+
+# LLM receives complete picture:
+# {
+#   "auth": {
+#     "state": "Using JWT tokens with refresh mechanism (v5)",
+#     "timestamp": "2024-11-10",
+#     "connections": [
+#       {"type": "depends_on", "target": "database", "strength": 0.9},
+#       {"type": "calls", "target": "api/user_service", "strength": 0.8}
+#     ]
+#   },
+#   "database": {
+#     "state": "PostgreSQL 15 with connection pooling (v3)",
+#     ...
+#   }
+# }
+
+# Query: "How does authentication work?"
+# LLM: "Auth uses JWT tokens (v5, changed Nov 10). It depends on
+#       the database for user lookup and calls the user service API.
+#       Previous versions used sessions (v1-v4), switched due to
+#       scalability issues."
+```
+
+### Example: Novel Writing (Complex Character Interactions)
+
+```python
+# Chapter 500: Scene with 5 characters
+characters = ["sarah", "king", "wizard", "assassin", "guard"]
+
+# Get current state of all relationships
+scene_context = {}
+for char_a in characters:
+    for char_b in characters:
+        if char_a != char_b:
+            scene_context[f"{char_a}_to_{char_b}"] = {
+                "relationship": get_latest_state(f"relationship/{char_a}_to_{char_b}"),
+                "traits": get_latest_states_for(
+                    entity_type="personality_trait",
+                    filter={"from": char_a, "about": char_b}
+                )
+            }
+
+# LLM receives complete relationship graph:
+# sarah → king: hatred(v2) + fear(high) + recent_gratitude(v1) [conflicted]
+# sarah → wizard: trust(v5) [mentor, evolved over 499 chapters]
+# king → sarah: guilt(v3) + protective(v1) [redemption arc]
+# assassin → king: loyalty(v1) [unchanged]
+# guard → sarah: admiration(v2) [grew from witnessing courage]
+
+# LLM writes scene considering ALL relationships and their history
+# No plot holes, complete consistency
+```
+
+### Example: NPC Simulation (Stateful Memory)
+
+```python
+# Player encounters "Merchant Tom" for the 10th time
+
+def get_npc_context(npc_id, player_id):
+    """Retrieve everything Tom knows/feels about this player"""
+    return {
+        # Current relationship (traced entity)
+        "relationship": get_latest_state(f"relationship/{npc_id}_to_{player_id}"),
+
+        # Tom's personality (may have evolved - it's traced!)
+        "personality": get_latest_state(f"personality/{npc_id}"),
+
+        # Past interactions (complete history)
+        "past_interactions": get_trace(f"interaction/{npc_id}_{player_id}"),
+
+        # Tom's current goals (traced, can change)
+        "current_goal": get_latest_state(f"goal/{npc_id}"),
+
+        # Events Tom witnessed
+        "world_knowledge": query_states(
+            tags=[f"witnessed_by_{npc_id}"],
+            time_window=(last_week, now)
+        )
+    }
+
+# LLM generates Tom's response based on:
+# - Relationship evolved from neutral(v1) → friendly(v3) because player helped 3 times
+# - Tom's personality changed from fearful(v1) → confident(v2) after dragon defeat
+# - Tom knows about dragon attack (witnessed) and rewards player
+# - Tom's goal shifted from "survive" to "rebuild_shop"
+```
+
+**Key Insight:**
+- **Same retrieval pattern** works for code, novels, NPCs, research, business, etc.
+- **Latest states + edges** = current understanding
+- **Trace history** = why things are this way
+- **LLM interprets** context and makes decisions
+
+---
+
+## 4. Everything That Evolves Should Be Traced
+
+### Personality, Relationships, Goals - All Traced Entities
+
+**Anti-Pattern:** Static fields in entity_schema
+```python
+# ❌ WRONG: Personality as static field
+sarah = create_memory(
+    topic="character/sarah",
+    entity_schema={
+        "personality": ["brave", "afraid_of_king"],  # Can't trace evolution!
+        "relationships": {"king": "hates"}  # Loses history!
+    }
+)
+```
+
+**Correct Pattern:** Trace everything that changes
+```python
+# ✅ RIGHT: Personality trait as separate traced entity
+
+# 1. Character identity (relatively static)
+sarah = create_memory(
+    topic="character/sarah",
+    entity_type="character",
+    entity_schema={"name": "Sarah", "role": "protagonist"}
+)
+
+# 2. Personality trait (traced entity)
+fear_v1 = create_memory(
+    topic="trait/sarah_fear_of_king",
+    entity_type="personality_trait",
+    content="Sarah is terrified of the king",
+    entity_schema={
+        "character": "sarah",
+        "trait_type": "fear",
+        "target": "king",
+        "intensity": "high"
+    }
+)
+
+# 3. Causative event
+murder = create_memory(
+    topic="event/parents_murdered",
+    entity_type="event",
+    content="King murdered Sarah's parents"
+)
+
+# 4. Edge showing causality
+create_edge(fear_v1.id, murder.id, "caused_by", strength=1.0)
+
+# 5. Later: Trait evolves (healing arc)
+fear_v2 = create_memory(
+    topic="trait/sarah_fear_of_king",  # Same topic = continues trace
+    content="Fear has diminished through therapy",
+    entity_schema={...,"intensity": "medium"},  # Evolved!
+    parent_state_id=fear_v1.id
+)
+
+# Query: "Why is Sarah afraid of the king?"
+# Traverses: fear_v2 → fear_v1 → murder
+# Returns: Current intensity (medium), evolved from (high), caused by (murder)
+```
+
+### What Should Be Traced?
+
+**Trace anything that:**
+- Changes over time
+- Has causality (X because of Y)
+- Needs "why" or "when" questions answered
+
+**Examples:**
+- **Personality traits**: fear, bravery, trust (evolve through events)
+- **Relationships**: neutral → hostile → conflicted (evolution matters)
+- **Goals**: "survive" → "rebuild" → "seek_revenge" (motivation shifts)
+- **Emotions**: calm → angry → remorseful (temporary states)
+- **Skills**: novice → competent → expert (progression tracking)
+- **Beliefs**: "king is good" → "king is evil" (opinion changes)
+- **Code components**: bug present → fixed → regressed (evolution)
+- **Business strategies**: aggressive → defensive (strategy shifts)
+
+---
+
+## 5. Relationship Tracking (First-Class, Not Just Edges)
 
 ### Problem
 Current design has edges, but relationships need richer tracking for novels/NPCs.
