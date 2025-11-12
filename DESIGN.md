@@ -77,19 +77,37 @@ Creating a new state by synthesizing information from traces and graphs:
 6. Establish new edges to related concepts
 ```
 
-### 5. Memory Lifecycle & Consolidation (Human-Like)
+### 5. Memory Lifecycle & Consolidation (Human-Like Benefits, Not Downsides)
 
-**Memory Strength Dynamics:**
-Memories behave like human memory with decay and reinforcement:
-- **Decay**: Unaccessed memories weaken over time (Ebbinghaus forgetting curve)
-- **Reinforcement**: Each access strengthens the memory (spaced repetition)
-- **Importance**: Important memories decay slower
-- **Never Lost**: Memories weaken but are never deleted (min strength 0.1)
+**Memory Strength Dynamics (For Ranking, Not Filtering):**
+Unlike human memory, we implement the BENEFITS (prioritization) without DOWNSIDES (forgetting):
+- **Strength Score**: Used for retrieval ranking/prioritization (0.0-1.0)
+- **Decay**: Score decreases over time → lower ranking, NOT invisibility
+- **Reinforcement**: Each access increases score → higher ranking
+- **Importance**: Important memories maintain high scores
+- **Never Lost**: All memories remain searchable and accessible
+  - Low-strength memories: Still in database, still in graph, still retrievable
+  - Just ranked lower in search results
+  - Always accessible via: graph traversal, explicit query, or trace history
+
+**Key Principle: Strength = Priority, Not Existence**
+- Traditional human memory: forgot = gone
+- TracingRAG: "forgot" = deprioritized, but still accessible
+- Graph connections ensure nothing is truly lost
+- Latest state edges maintain relevance chains
+
+**Graph-Based Relevance Discovery:**
+Even if a memory has low strength, it remains discoverable via graph:
+- **Latest State Edges**: Follow edges from latest state to find all connected context
+- **Trace Relationships**: Walk backwards through traces to find historical context
+- **Cross-Topic Connections**: Related topics maintain edges regardless of strength
+- **Example**: Bug from 6 months ago (low strength) → still connected to current project state → found when querying project
 
 **Storage Tiers:**
 - **Working Memory**: Hot cache (Redis), recently/frequently accessed, <1000 items
 - **Active Memory**: Normal storage, regularly accessed, full search capability
 - **Archived Memory**: Cold storage (S3), rarely accessed, retrieved on demand
+  - Note: Archive location, NOT deleted - still in graph and searchable
 
 **Hierarchical Consolidation (Like Sleep):**
 Automatic summarization at multiple time scales:
@@ -357,28 +375,48 @@ class Trace(BaseModel):
 
 ## Key Algorithms
 
-### 1. Semantic Search with Temporal Filtering
+### 1. Memory-Strength-Aware Retrieval (Ranking, Not Filtering)
 ```python
 def search_memories(query: str, time_window: Optional[tuple] = None):
     # Generate query embedding
     query_emb = embed(query)
 
-    # Vector search in Qdrant
+    # Vector search in Qdrant - NO strength filtering
     candidates = vector_db.search(
         vector=query_emb,
         limit=100,
         filter={
             "timestamp": time_window if time_window else None
+            # Note: NO memory_strength filter - we rank, not filter
         }
     )
 
     # Get latest states from each trace
     latest_states = filter_to_latest_per_trace(candidates)
 
+    # RE-RANK using memory strength (not filter out!)
+    for state in latest_states:
+        # Calculate current strength (may have decayed since stored)
+        current_strength = calculate_memory_strength(state)
+
+        # Combined score: semantic similarity × memory strength
+        # This prioritizes relevant AND frequently-accessed memories
+        state.final_score = state.semantic_score * (0.7 + 0.3 * current_strength)
+        # Note: Even 0.0 strength gets 0.7× weight - still retrievable!
+
+    # Sort by combined score
+    latest_states.sort(key=lambda s: s.final_score, reverse=True)
+
     return latest_states
 ```
 
-### 2. Graph-Enhanced Retrieval
+**Key Insight:**
+- Memory strength adjusts ranking (0.7× to 1.0× multiplier)
+- Low-strength memories still appear in results, just lower
+- If semantically very relevant, low-strength memory can still rank high
+- Nothing is filtered out based on strength alone
+
+### 2. Graph-Enhanced Retrieval (Ensures Relevance, Ignores Strength)
 ```python
 def graph_enhanced_retrieval(query: str, depth: int = 2):
     # Get initial semantic matches
@@ -388,10 +426,13 @@ def graph_enhanced_retrieval(query: str, depth: int = 2):
     enhanced_results = []
     for match in initial_matches:
         # Get connected states within depth
+        # IMPORTANT: Graph traversal ignores memory_strength
+        # Even "forgotten" (low-strength) memories are found if connected
         subgraph = graph_db.traverse(
             start_node=match.id,
             max_depth=depth,
             relationship_types=["relates_to", "causes", "references"]
+            # No strength filter - relevance determined by graph structure
         )
 
         # Walk backwards in trace for context
@@ -399,12 +440,19 @@ def graph_enhanced_retrieval(query: str, depth: int = 2):
 
         enhanced_results.append({
             "state": match,
-            "related_states": subgraph,
+            "related_states": subgraph,  # May include low-strength states!
             "historical_context": historical_context
         })
 
     return enhanced_results
 ```
+
+**Example:**
+- Query: "project_alpha status"
+- Finds: project_alpha latest state (high strength, frequently accessed)
+- Graph traversal finds: old_bug_report (low strength, not accessed in months)
+- Result: Bug is included because it's connected to current state, not because of its strength
+- This is exactly what you want: relevance via graph, not recency via strength
 
 ### 3. Memory Promotion Algorithm
 ```python

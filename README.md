@@ -12,11 +12,15 @@ An enhanced Retrieval-Augmented Generation (RAG) system that combines temporal t
 - **Time-Travel Queries**: Query knowledge as it existed at any point in time
 
 ### Human-Like Memory (What Makes TracingRAG Special)
-- **Memory Strength**: Memories decay over time but strengthen with access (like Ebbinghaus forgetting curve)
+- **Memory Strength for Prioritization**: Uses strength scores for ranking (like human attention), NOT for forgetting
+  - Low-strength memories: ranked lower, but still accessible via graph/search/trace
+  - High-strength memories: prioritized in results
+  - Nothing is ever truly "forgotten" - graph connections maintain relevance
 - **Importance Learning**: System learns what's important from access patterns
 - **Working Memory**: Context-aware hot cache pre-loads related memories (<10ms queries)
 - **Hierarchical Consolidation**: Auto-summarizes at daily/weekly/monthly levels (like human sleep)
 - **Latest State Tracking**: Instant O(1) lookup for "what's the current status?" queries
+- **Graph-Based Relevance**: Even old/low-strength memories found via edges to latest states
 - **Storage Tiers**: Hot/warm/cold storage mimics human memory (working/active/archived)
 
 ### Scale & Performance
