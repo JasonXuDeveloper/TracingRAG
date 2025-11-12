@@ -12,20 +12,30 @@ from tracingrag.core.models.rag import (
     RAGContext,
     TokenEstimate,
 )
+from tracingrag.services.query_analyzer import QueryAnalyzer, get_query_analyzer
 from tracingrag.services.retrieval import RetrievalResult, RetrievalService
 
 
 class ContextBuilder:
     """Builds context for RAG pipeline with intelligent budgeting"""
 
-    def __init__(self, retrieval_service: RetrievalService | None = None):
+    def __init__(
+        self,
+        retrieval_service: RetrievalService | None = None,
+        query_analyzer: QueryAnalyzer | None = None,
+        use_llm_analysis: bool = True,
+    ):
         """
         Initialize context builder
 
         Args:
             retrieval_service: Service for retrieving memory states
+            query_analyzer: Query analyzer for intent detection
+            use_llm_analysis: Whether to use LLM for query analysis (vs rules)
         """
         self.retrieval_service = retrieval_service or RetrievalService()
+        self.query_analyzer = query_analyzer or get_query_analyzer()
+        self.use_llm_analysis = use_llm_analysis
 
     async def build_context(
         self,
@@ -38,7 +48,7 @@ class ContextBuilder:
         Build complete context for RAG pipeline
 
         Args:
-            query: User query
+            query: User query (any language)
             query_embedding: Pre-computed query embedding
             max_tokens: Maximum tokens for context
             query_type: Detected query type (auto-detect if None)
@@ -46,9 +56,17 @@ class ContextBuilder:
         Returns:
             RAG context with retrieved states and metadata
         """
-        # Detect query type if not provided
+        # Analyze query if type not provided
         if query_type is None:
-            query_type = self._detect_query_type(query)
+            # Use LLM-based analysis for language-agnostic, intelligent detection
+            analysis = await self.query_analyzer.analyze_query(
+                query, use_llm=self.use_llm_analysis
+            )
+            query_type = analysis["query_type"]
+            consolidation_level = analysis["consolidation_level"]
+        else:
+            # Use provided query type
+            consolidation_level = self._determine_consolidation_level_rules(query_type)
 
         # Initialize context
         context = RAGContext(
@@ -56,6 +74,7 @@ class ContextBuilder:
             query_type=query_type,
             query_embedding=query_embedding,
             max_tokens=max_tokens,
+            consolidation_level=consolidation_level,
         )
 
         # Create budget allocation
@@ -78,13 +97,11 @@ class ContextBuilder:
         context.tokens_remaining = context.max_tokens - context.tokens_used
 
         # Phase 2: Get summaries (if needed)
-        consolidation_level = self._determine_consolidation_level(query_type)
-        context.consolidation_level = consolidation_level
 
-        if consolidation_level != ConsolidationLevel.RAW:
+        if context.consolidation_level != ConsolidationLevel.RAW:
             summaries = await self._get_summaries(
                 latest_states=latest_states,
-                consolidation_level=consolidation_level,
+                consolidation_level=context.consolidation_level,
                 max_tokens=budget.summaries_budget,
             )
             context.summaries = summaries
@@ -179,78 +196,7 @@ class ContextBuilder:
 
         return "".join(lines)
 
-    def _detect_query_type(self, query: str) -> QueryType:
-        """
-        Detect query type from query text
-
-        Args:
-            query: User query
-
-        Returns:
-            Detected query type
-        """
-        query_lower = query.lower()
-
-        # Status queries (check specific phrases first)
-        if any(
-            phrase in query_lower
-            for phrase in [
-                "current status",
-                "what's happening",
-                "latest",
-                "current state",
-                "what is the status",
-                "what's the status",
-            ]
-        ):
-            return QueryType.STATUS
-
-        # Recent queries
-        if any(
-            phrase in query_lower
-            for phrase in [
-                "last week",
-                "last month",
-                "recently",
-                "what happened",
-                "recent",
-            ]
-        ):
-            return QueryType.RECENT
-
-        # Overview queries
-        if any(
-            phrase in query_lower
-            for phrase in ["summarize", "overview", "summary", "entire", "complete"]
-        ):
-            return QueryType.OVERVIEW
-
-        # Why queries (check before 'what')
-        if query_lower.startswith("why") or "why did" in query_lower or "why " in query_lower:
-            return QueryType.WHY
-
-        # How queries (check before 'what')
-        if query_lower.startswith("how") or "how does" in query_lower or "how to" in query_lower:
-            return QueryType.HOW
-
-        # Comparison queries (check before 'what')
-        if any(
-            phrase in query_lower
-            for phrase in ["compare", "difference", "versus", "vs ", " vs"]
-        ):
-            return QueryType.COMPARISON
-
-        # What queries
-        if query_lower.startswith("what") or "what is" in query_lower:
-            return QueryType.WHAT
-
-        # When queries
-        if query_lower.startswith("when") or "when did" in query_lower:
-            return QueryType.WHEN
-
-        return QueryType.GENERAL
-
-    def _determine_consolidation_level(self, query_type: QueryType) -> ConsolidationLevel:
+    def _determine_consolidation_level_rules(self, query_type: QueryType) -> ConsolidationLevel:
         """
         Determine appropriate consolidation level for query type
 

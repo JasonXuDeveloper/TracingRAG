@@ -172,72 +172,103 @@ class TestContextBuilder:
         assert context_builder is not None
         assert isinstance(context_builder, ContextBuilder)
 
-    def test_detect_query_type_status(self, context_builder):
+    @pytest.mark.asyncio
+    async def test_detect_query_type_status(self, context_builder):
         """Test query type detection for status queries"""
-        query_type = context_builder._detect_query_type("What is the current status?")
-        assert query_type == QueryType.STATUS
+        # Test with rule-based fallback
+        analysis = await context_builder.query_analyzer.analyze_query(
+            "What is the current status?", use_llm=False
+        )
+        assert analysis["query_type"] == QueryType.STATUS
 
-        query_type = context_builder._detect_query_type("Show me the latest updates")
-        assert query_type == QueryType.STATUS
+        analysis = await context_builder.query_analyzer.analyze_query(
+            "Show me the latest updates", use_llm=False
+        )
+        assert analysis["query_type"] == QueryType.STATUS
 
-    def test_detect_query_type_why(self, context_builder):
+    @pytest.mark.asyncio
+    async def test_detect_query_type_why(self, context_builder):
         """Test query type detection for why queries"""
-        query_type = context_builder._detect_query_type("Why did this happen?")
-        assert query_type == QueryType.WHY
+        analysis = await context_builder.query_analyzer.analyze_query(
+            "Why did this happen?", use_llm=False
+        )
+        assert analysis["query_type"] == QueryType.WHY
 
-        query_type = context_builder._detect_query_type("Tell me why X failed")
-        assert query_type == QueryType.WHY
+        analysis = await context_builder.query_analyzer.analyze_query(
+            "Tell me why X failed", use_llm=False
+        )
+        assert analysis["query_type"] == QueryType.WHY
 
-    def test_detect_query_type_how(self, context_builder):
+    @pytest.mark.asyncio
+    async def test_detect_query_type_how(self, context_builder):
         """Test query type detection for how queries"""
-        query_type = context_builder._detect_query_type("How does this work?")
-        assert query_type == QueryType.HOW
+        analysis = await context_builder.query_analyzer.analyze_query(
+            "How does this work?", use_llm=False
+        )
+        assert analysis["query_type"] == QueryType.HOW
 
-        query_type = context_builder._detect_query_type("Show me how to do X")
-        assert query_type == QueryType.HOW
+        analysis = await context_builder.query_analyzer.analyze_query(
+            "Show me how to do X", use_llm=False
+        )
+        assert analysis["query_type"] == QueryType.HOW
 
-    def test_detect_query_type_overview(self, context_builder):
+    @pytest.mark.asyncio
+    async def test_detect_query_type_overview(self, context_builder):
         """Test query type detection for overview queries"""
-        query_type = context_builder._detect_query_type("Summarize the project")
-        assert query_type == QueryType.OVERVIEW
+        analysis = await context_builder.query_analyzer.analyze_query(
+            "Summarize the project", use_llm=False
+        )
+        assert analysis["query_type"] == QueryType.OVERVIEW
 
-        query_type = context_builder._detect_query_type("Give me an overview")
-        assert query_type == QueryType.OVERVIEW
+        analysis = await context_builder.query_analyzer.analyze_query(
+            "Give me an overview", use_llm=False
+        )
+        assert analysis["query_type"] == QueryType.OVERVIEW
 
-    def test_detect_query_type_recent(self, context_builder):
+    @pytest.mark.asyncio
+    async def test_detect_query_type_recent(self, context_builder):
         """Test query type detection for recent queries"""
-        query_type = context_builder._detect_query_type("What happened last week?")
-        assert query_type == QueryType.RECENT
+        analysis = await context_builder.query_analyzer.analyze_query(
+            "What happened last week?", use_llm=False
+        )
+        assert analysis["query_type"] == QueryType.RECENT
 
-        query_type = context_builder._detect_query_type("Show recent changes")
-        assert query_type == QueryType.RECENT
+        analysis = await context_builder.query_analyzer.analyze_query(
+            "Show recent changes", use_llm=False
+        )
+        assert analysis["query_type"] == QueryType.RECENT
 
-    def test_detect_query_type_comparison(self, context_builder):
+    @pytest.mark.asyncio
+    async def test_detect_query_type_comparison(self, context_builder):
         """Test query type detection for comparison queries"""
-        query_type = context_builder._detect_query_type("Compare X and Y")
-        assert query_type == QueryType.COMPARISON
+        analysis = await context_builder.query_analyzer.analyze_query(
+            "Compare X and Y", use_llm=False
+        )
+        assert analysis["query_type"] == QueryType.COMPARISON
 
-        query_type = context_builder._detect_query_type("What's the difference between A vs B")
-        assert query_type == QueryType.COMPARISON
+        analysis = await context_builder.query_analyzer.analyze_query(
+            "What's the difference between A vs B", use_llm=False
+        )
+        assert analysis["query_type"] == QueryType.COMPARISON
 
     def test_determine_consolidation_level_status(self, context_builder):
         """Test consolidation level for status queries"""
-        level = context_builder._determine_consolidation_level(QueryType.STATUS)
+        level = context_builder._determine_consolidation_level_rules(QueryType.STATUS)
         assert level == ConsolidationLevel.RAW
 
     def test_determine_consolidation_level_recent(self, context_builder):
         """Test consolidation level for recent queries"""
-        level = context_builder._determine_consolidation_level(QueryType.RECENT)
+        level = context_builder._determine_consolidation_level_rules(QueryType.RECENT)
         assert level == ConsolidationLevel.DAILY
 
     def test_determine_consolidation_level_overview(self, context_builder):
         """Test consolidation level for overview queries"""
-        level = context_builder._determine_consolidation_level(QueryType.OVERVIEW)
+        level = context_builder._determine_consolidation_level_rules(QueryType.OVERVIEW)
         assert level == ConsolidationLevel.MONTHLY
 
     def test_determine_consolidation_level_why(self, context_builder):
         """Test consolidation level for why queries (detailed)"""
-        level = context_builder._determine_consolidation_level(QueryType.WHY)
+        level = context_builder._determine_consolidation_level_rules(QueryType.WHY)
         assert level == ConsolidationLevel.RAW
 
     def test_create_budget_status_query(self, context_builder):
@@ -362,19 +393,23 @@ class TestRAGIntegration:
         assert RAGService is not None
         assert query_rag is not None
 
-    def test_end_to_end_imports(self):
+    @pytest.mark.asyncio
+    async def test_end_to_end_imports(self):
         """Test complete import chain"""
         # Models
         from tracingrag.core.models.rag import QueryType, RAGContext
 
         # Services
         from tracingrag.services.context import ContextBuilder
+        from tracingrag.services.query_analyzer import QueryAnalyzer
         from tracingrag.services.rag import RAGService
 
         # Create instances
         builder = ContextBuilder()
         assert builder is not None
 
-        # Verify query type detection
-        query_type = builder._detect_query_type("What is the status?")
-        assert query_type == QueryType.STATUS
+        # Verify query type detection with rule-based fallback
+        analysis = await builder.query_analyzer.analyze_query(
+            "What is the status?", use_llm=False
+        )
+        assert analysis["query_type"] == QueryType.STATUS

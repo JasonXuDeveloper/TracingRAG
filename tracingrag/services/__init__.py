@@ -14,6 +14,7 @@ from tracingrag.services.embedding import (
 from tracingrag.services.graph import GraphService
 from tracingrag.services.llm import LLMClient, close_llm_client, get_llm_client
 from tracingrag.services.memory import MemoryService
+from tracingrag.services.query_analyzer import QueryAnalyzer, get_query_analyzer
 from tracingrag.services.rag import RAGService, query_rag
 from tracingrag.services.retrieval import RetrievalResult, RetrievalService
 
@@ -36,4 +37,6 @@ __all__ = [
     "ContextBuilder",
     "RAGService",
     "query_rag",
+    "QueryAnalyzer",
+    "get_query_analyzer",
 ]
