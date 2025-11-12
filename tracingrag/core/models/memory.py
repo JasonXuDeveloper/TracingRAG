@@ -44,6 +44,31 @@ class StorageTier(str, Enum):
     ARCHIVED = "archived"  # Cold storage, rarely accessed
 
 
+class EntityType(str, Enum):
+    """Types of entities for domain-specific use cases (novels, games, etc.)"""
+
+    # Generic
+    GENERIC = "generic"  # Default, untyped memory
+
+    # Narrative entities
+    CHARACTER = "character"  # Character in story/game
+    LOCATION = "location"  # Physical location
+    PLOT_THREAD = "plot_thread"  # Story plot line
+    EVENT = "event"  # Significant event
+    RELATIONSHIP = "relationship"  # Relationship between entities
+
+    # World building
+    WORLD_RULE = "world_rule"  # Rules of the world (physics, magic, etc.)
+    FACTION = "faction"  # Group, organization, nation
+    ITEM = "item"  # Significant object
+    CONCEPT = "concept"  # Abstract concept or idea
+
+    # Hierarchical
+    VOLUME = "volume"  # Volume in a series
+    ARC = "arc"  # Story arc
+    CHAPTER = "chapter"  # Chapter or section
+
+
 class MemoryState(BaseModel):
     """A single state in a memory trace representing knowledge at a point in time"""
 
@@ -89,6 +114,15 @@ class MemoryState(BaseModel):
         default=None, description="Diff from parent state (for storage efficiency)"
     )
     is_delta: bool = Field(default=False, description="Is this stored as diff?")
+
+    # Domain-specific entity typing (for novels, games, etc.)
+    entity_type: EntityType = Field(
+        default=EntityType.GENERIC, description="Type of entity this memory represents"
+    )
+    entity_schema: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Type-specific structured data (e.g., character traits, location props)",
+    )
 
     class Config:
         json_schema_extra = {
