@@ -2,6 +2,20 @@
 
 from .graph import Edge, EdgeStrengthFactors, GraphStats, RelationshipType
 from .memory import MemoryEdge, MemoryState, Trace
+from .promotion import (
+    Conflict,
+    ConflictResolution,
+    ConflictResolutionStrategy,
+    ConflictType,
+    EdgeUpdate,
+    PromotionCandidate,
+    PromotionRequest,
+    PromotionResult,
+    PromotionTrigger,
+    QualityCheck,
+    QualityCheckType,
+    SynthesisSource,
+)
 from .rag import (
     ConsolidationLevel,
     ContextBudget,
@@ -14,13 +28,16 @@ from .rag import (
 )
 
 __all__ = [
+    # Memory models
     "MemoryState",
     "MemoryEdge",
     "Trace",
+    # Graph models
     "Edge",
     "EdgeStrengthFactors",
     "GraphStats",
     "RelationshipType",
+    # RAG models
     "QueryType",
     "ConsolidationLevel",
     "RAGContext",
@@ -29,4 +46,17 @@ __all__ = [
     "RAGResponse",
     "ContextBudget",
     "TokenEstimate",
+    # Promotion models
+    "PromotionTrigger",
+    "ConflictType",
+    "ConflictResolutionStrategy",
+    "QualityCheckType",
+    "Conflict",
+    "ConflictResolution",
+    "QualityCheck",
+    "EdgeUpdate",
+    "SynthesisSource",
+    "PromotionCandidate",
+    "PromotionResult",
+    "PromotionRequest",
 ]

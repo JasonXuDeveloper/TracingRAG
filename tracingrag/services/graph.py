@@ -433,3 +433,59 @@ class GraphService:
                 "avg_edges_per_node": edge_count / node_count if node_count > 0 else 0,
                 "relationship_type_distribution": type_distribution,
             }
+
+    async def get_edges_from_state(
+        self, state_id: UUID, active_only: bool = True
+    ) -> list[Edge]:
+        """Get all edges originating from a state
+
+        Args:
+            state_id: Source state ID
+            active_only: Only return active edges
+
+        Returns:
+            List of Edge objects
+        """
+        driver = get_neo4j_driver()
+
+        async with driver.session() as session:
+            query = """
+                MATCH (source:MemoryState {id: $state_id})-[r]->(target:MemoryState)
+                WHERE $active_only = false OR r.is_active = true
+                RETURN
+                    source.id as source_id,
+                    target.id as target_id,
+                    type(r) as rel_type,
+                    r.strength as strength,
+                    r.description as description,
+                    r.created_at as created_at,
+                    r.last_accessed as last_accessed,
+                    r.access_count as access_count,
+                    r.metadata as metadata,
+                    r.is_active as is_active,
+                    r.valid_from as valid_from,
+                    r.valid_until as valid_until
+            """
+
+            result = await session.run(query, state_id=str(state_id), active_only=active_only)
+            records = await result.data()
+
+            edges = []
+            for record in records:
+                try:
+                    rel_type = RelationshipType(record["rel_type"])
+                except ValueError:
+                    # Skip unknown relationship types
+                    continue
+
+                edge = Edge(
+                    source_state_id=UUID(record["source_id"]),
+                    target_state_id=UUID(record["target_id"]),
+                    relationship_type=rel_type,
+                    strength=record.get("strength", 0.5),
+                    description=record.get("description"),
+                    custom_metadata=record.get("metadata", {}),
+                )
+                edges.append(edge)
+
+            return edges
