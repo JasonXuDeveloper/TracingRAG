@@ -32,6 +32,17 @@ class RelationshipType(str, Enum):
     CONTEXT_FOR = "context_for"  # State A provides context for state B
     EXAMPLE_OF = "example_of"  # State A is an example of state B
 
+    # Consolidation relationships
+    SUMMARIZES = "summarizes"  # State A summarizes state B (for consolidation)
+
+
+class StorageTier(str, Enum):
+    """Storage tiers for memory lifecycle management"""
+
+    WORKING = "working"  # Hot storage, frequently accessed
+    ACTIVE = "active"  # Normal storage, regularly accessed
+    ARCHIVED = "archived"  # Cold storage, rarely accessed
+
 
 class MemoryState(BaseModel):
     """A single state in a memory trace representing knowledge at a point in time"""
@@ -52,6 +63,39 @@ class MemoryState(BaseModel):
     )
     source: Optional[str] = Field(default=None, description="Where this information came from")
     created_by: Optional[str] = Field(default=None, description="Who/what created this state")
+
+    # Analytics and storage management (not used for retrieval ranking)
+    access_count: int = Field(default=0, description="Number of times accessed (analytics only)")
+    last_accessed: datetime = Field(default_factory=datetime.utcnow)
+    importance_score: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Learned importance (0-1)"
+    )
+    storage_tier: StorageTier = Field(default=StorageTier.ACTIVE)
+
+    # Consolidation tracking
+    consolidated_from: Optional[list[UUID]] = Field(
+        default=None, description="State IDs this was consolidated from"
+    )
+    is_consolidated: bool = Field(default=False, description="Is this a consolidated summary?")
+    consolidation_level: int = Field(
+        default=0, description="0=raw, 1=daily, 2=weekly, 3=monthly"
+    )
+
+    # Diff-based storage for efficiency
+    diff_from_parent: Optional[str] = Field(
+        default=None, description="Diff from parent state (for storage efficiency)"
+    )
+    is_delta: bool = Field(default=False, description="Is this stored as diff?")
+
+    # Optional entity typing pattern (user-defined, not prescribed)
+    entity_type: Optional[str] = Field(
+        default=None,
+        description="Optional user-defined entity type (e.g., 'character', 'bug', 'patient')",
+    )
+    entity_schema: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Optional user-defined structured data for this entity",
+    )
 
     class Config:
         json_schema_extra = {
@@ -84,6 +128,24 @@ class MemoryEdge(BaseModel):
     description: Optional[str] = Field(
         default=None, description="Human-readable description of why this edge exists"
     )
+
+    # Temporal validity for accurate reasoning
+    valid_from: datetime = Field(
+        default_factory=datetime.utcnow, description="When this edge became true"
+    )
+    valid_until: Optional[datetime] = Field(
+        default=None, description="When this edge stopped being true (None = still valid)"
+    )
+    superseded_by: Optional[UUID] = Field(
+        default=None, description="Edge that replaced this one (if applicable)"
+    )
+
+    @property
+    def is_active(self) -> bool:
+        """Check if edge is currently active"""
+        if self.valid_until is None:
+            return True
+        return datetime.utcnow() < self.valid_until
 
     class Config:
         json_schema_extra = {
