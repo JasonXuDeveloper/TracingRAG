@@ -722,6 +722,291 @@ find_edge_change("design/approach_x", "rejected_because", "viable_after_fix")
 - Historical queries: Edges active at that time
 - Full history: All edges with validity periods
 
+### 6. Context Window Management (Preventing Information Loss)
+
+**The Challenge:**
+With large knowledge bases (millions of states), it's impossible to fit all relevant information into an LLM's context window. The critical question: How do we ensure no information is lost while preventing hallucination?
+
+**The Solution: Hierarchical Retrieval with Intelligent Context Budgeting**
+
+```python
+async def retrieve_within_budget(
+    query: str,
+    max_tokens: int = 100000  # Example: Claude 3.5 Sonnet context
+) -> dict:
+    """
+    Intelligent retrieval that fits within context window.
+
+    Strategy:
+    1. Latest states (always included) - O(1) lookup
+    2. Consolidated summaries (appropriate level)
+    3. Selective drill-down (graph-guided filtering)
+    4. Preserve buffer for LLM reasoning
+    """
+
+    # Phase 1: Latest states (the "index") - ALWAYS included
+    # These provide current ground truth
+    latest_states = await get_latest_states_for_query(query)
+    context = {
+        "latest": latest_states,  # ~20K tokens
+        "summaries": [],
+        "details": []
+    }
+
+    tokens_used = estimate_tokens(latest_states)
+    buffer = 10000  # Reserve for LLM reasoning
+    remaining = max_tokens - tokens_used - buffer
+
+    # Phase 2: Determine appropriate consolidation level
+    # Automatically adjust granularity based on query type
+    level = determine_consolidation_level(query)
+    # - "What's current status?" → level 0 (no history)
+    # - "What happened last week?" → level 1 (daily summaries)
+    # - "Summarize entire project" → level 3 (monthly summaries)
+    # - "Why did X happen?" → level 0 (detailed, graph-filtered)
+
+    # Phase 3: Get relevant summaries
+    # Use graph edges from latest states to find relevant topics
+    relevant_topics = extract_topics_via_graph(latest_states)
+
+    summaries = await get_relevant_summaries(
+        topics=relevant_topics,
+        consolidation_level=level,
+        max_tokens=min(30000, remaining * 0.4)
+    )
+    context["summaries"] = summaries
+    remaining -= estimate_tokens(summaries)
+
+    # Phase 4: Selective drill-down on most relevant
+    # Graph-guided filtering ensures we get RIGHT information, not ALL
+    ranked_topics = await semantic_rank(
+        query=query,
+        candidates=relevant_topics,
+        query_embedding=await embed(query)
+    )
+
+    for topic in ranked_topics:
+        if remaining < 5000:
+            break  # Preserve buffer
+
+        # Get recent states for this topic (not entire trace!)
+        recent_states = await get_trace_recent(
+            topic=topic,
+            limit=10,  # Configurable
+            time_window=(now - timedelta(days=30), now)
+        )
+
+        detail_tokens = estimate_tokens(recent_states)
+        if detail_tokens <= remaining:
+            context["details"].extend(recent_states)
+            remaining -= detail_tokens
+
+    return context
+
+
+def determine_consolidation_level(query: str) -> int:
+    """Auto-select granularity based on query intent"""
+
+    # Status query: Just latest, no history
+    if is_status_query(query):  # "What's current status?"
+        return 0
+
+    # Recent query: Daily summaries
+    elif is_recent_query(query):  # "What happened last week?"
+        return 1
+
+    # Overview query: Monthly summaries
+    elif is_overview_query(query):  # "Summarize the project"
+        return 3
+
+    # Why/cause query: Detailed states, graph-filtered
+    elif is_why_query(query):  # "Why did character X do Y?"
+        return 0  # But with graph filtering!
+
+    return 2  # Default: weekly summaries
+
+
+async def get_relevant_subgraph(
+    query_embedding: list[float],
+    max_nodes: int = 100
+) -> list[MemoryState]:
+    """
+    Graph-guided filtering: Use latest states + edges to identify
+    relevant historical states WITHOUT retrieving entire database.
+    """
+
+    # Step 1: Vector search finds semantically relevant latest states
+    relevant_latest = await vector_search(
+        embedding=query_embedding,
+        filter={"is_latest": True},  # Only current states
+        limit=10
+    )
+
+    # Step 2: Graph traversal with relevance-based pruning
+    subgraph = []
+    for state in relevant_latest:
+        # Follow edges with strength > threshold
+        # This is where edge.strength provides contextual filtering
+        connected = await graph.traverse(
+            start=state.id,
+            direction="incoming",  # Historical states
+            max_depth=3,
+            min_edge_strength=0.5,  # Prune weak connections
+            max_nodes_per_hop=5,    # Limit breadth
+            only_active=True        # Current truth only
+        )
+        subgraph.extend(connected)
+
+    # Return filtered subgraph (not entire database!)
+    return subgraph[:max_nodes]
+```
+
+**Concrete Example: Novel Writing**
+
+```python
+# Query: "How would Sarah react if she saw the king right now?"
+
+# === Phase 1: Latest States (Always Included) ===
+latest_context = {
+    "character/sarah": "Sarah is a skilled warrior, recovering from trauma...",
+    "relationship/sarah_to_king": "Deep fear and hatred of the king",
+}
+# Tokens: ~2K
+
+# === Phase 2: Graph Filtering ===
+# System finds relevant personality traits via edges:
+# sarah --[has_trait]--> trait/sarah_fear_of_king
+# sarah --[has_trait]--> trait/sarah_desire_for_revenge
+
+traits = {
+    "trait/sarah_fear_of_king": {
+        "latest": "High intensity fear",
+        "caused_by": "event/parents_murdered"  # Edge preserves causality!
+    },
+    "trait/sarah_desire_for_revenge": {
+        "latest": "Medium intensity",
+        "caused_by": "event/kingdom_burned"
+    }
+}
+# Tokens: ~3K (NOT 500K for all 1000 chapters!)
+
+# === Phase 3: Recent Interactions ===
+# Graph finds: sarah --[interacted_with]--> king (last 5 events only)
+recent_interactions = [
+    "Chapter 1003: Sarah fled when king appeared",
+    "Chapter 998: Sarah watched king from shadows",
+    # ... (last 5 interactions, not all 1000 chapters)
+]
+# Tokens: ~5K
+
+# === Total: ~10K tokens instead of 500K ===
+# But contains ALL critical information:
+# - Latest character state (current truth)
+# - Current relationship state
+# - Key personality traits WITH causality (edges!)
+# - Recent relevant history (not ancient irrelevant events)
+
+# LLM can now accurately reason:
+# "Sarah would experience intense fear (caused by parents' murder)
+#  mixed with desire for revenge (caused by kingdom burning).
+#  Given her recent pattern of avoidance (last 5 interactions),
+#  she would likely retreat but prepare for future confrontation..."
+```
+
+**Why This Prevents Hallucination:**
+
+1. **Latest states always included** → LLM knows current ground truth
+   - Can't hallucinate "Sarah likes the king" when latest state says "fear and hatred"
+
+2. **Graph edges preserve causality** → LLM sees WHY, not just WHAT
+   - Can't hallucinate reasons: fear → murder event edge is explicit
+
+3. **Summaries provide temporal context** → LLM knows WHEN without every detail
+   - "Daily summary: 50 interactions with guards, 2 mentions of king"
+
+4. **Semantic ranking ensures relevance** → Only related history included
+   - Query about Sarah-King doesn't retrieve Sarah-merchant interactions
+
+5. **Explicit drill-down capability** → LLM can request more detail
+   - Multi-pass retrieval: "Need more detail on the murder event"
+
+**Information Loss vs. Context Efficiency:**
+
+**Key Insight: Not all information is equally relevant to every query!**
+
+Novel example - Query: "How would Sarah react to the king?"
+
+**DON'T need** (filtered out by graph):
+- Every conversation Sarah had with other characters
+- Detailed descriptions of every location
+- Complete text of every chapter
+- Sarah's interactions with merchants, healers, etc.
+
+**DO need** (included via graph edges):
+- Sarah's latest state
+- Sarah-King relationship (latest)
+- Relevant personality traits (fear, revenge)
+- Causality edges (fear → murder, revenge → burned kingdom)
+- Recent Sarah-King interactions (last 5, not all 50)
+
+Codebase example - Query: "How does authentication work?"
+
+**DON'T need:**
+- Every commit message in 5-year history
+- Every refactoring detail
+- Test file contents
+- Documentation changes
+
+**DO need:**
+- Current auth implementation (latest state)
+- Related security middleware (graph-connected)
+- Recent auth changes (last 30 days)
+- Design decision summaries (weekly consolidation)
+
+**The system uses intelligent filtering, not random sampling.**
+Graph structure + semantic ranking + consolidation levels ensure the RIGHT information is included, even if not ALL information fits.
+
+**Multi-Pass Retrieval (Agentic Pattern):**
+
+```python
+# Pass 1: LLM sees overview
+context_v1 = {
+    "latest_states": [...],
+    "summary": "Jan-Mar 2024: Feature X developed, bug Y fixed..."
+}
+
+response_v1 = await llm.generate(query, context_v1)
+
+# If LLM needs more detail:
+if response_v1.needs_drill_down:
+    # Pass 2: Drill down on specific topic
+    context_v2 = await retrieve_within_budget(
+        query=f"Details about {response_v1.drill_down_target}",
+        max_tokens=40000
+    )
+
+    response_v2 = await llm.generate(
+        f"{query} (drill-down: {response_v1.drill_down_target})",
+        context_v2
+    )
+```
+
+**Storage Tiers Enable This:**
+
+- **Hot (working)**: Latest states + active edges → <10ms lookup
+- **Warm (active)**: Recent states (last 30 days) → <100ms with caching
+- **Cold (archived)**: Historical states → Available for drill-down
+
+Consolidated summaries live in warm storage, originals in cold storage.
+Drill-down pattern: summary (warm) → daily (cold) → originals (cold)
+
+**Result:**
+- Queries stay within context window
+- No information truly lost (all states preserved)
+- Graph ensures relevant information found
+- LLM never hallucinates because latest states = ground truth
+- Multi-pass retrieval allows deeper exploration when needed
+
 ## Implementation Phases
 
 ### Phase 1: Foundation (Weeks 1-2)

@@ -1324,6 +1324,225 @@ These domain-specific features provide:
 ✅ **Goal-Oriented**: NPCs have motivations that drive actions
 ✅ **Evolving Thoughts**: NPC opinions change based on interactions
 
+## Context Window Management: Preventing Information Loss
+
+### The Challenge
+
+With large-scale applications (1000-chapter novels, years of NPC interactions, massive codebases), you can't fit all relevant information into an LLM's context window. **How do we ensure no information is lost while preventing hallucination?**
+
+### The Solution: Hierarchical Retrieval with Intelligent Context Budgeting
+
+TracingRAG uses a multi-layered approach that fits within context limits while preserving accuracy:
+
+#### 1. Latest States Always Included (The "Index")
+```python
+# Novel example: Query at Chapter 1000
+# "How would Sarah react if she saw the king?"
+
+# Phase 1: Latest states (O(1) lookup, always included)
+context = {
+    "character/sarah": get_latest_state("character/sarah"),
+    # → "Sarah is a master warrior, scarred but confident..."
+
+    "relationship/sarah_to_king": get_latest_state("relationship/sarah_to_king"),
+    # → "Deep hatred mixed with newfound respect"
+
+    "trait/sarah_fear_of_king": get_latest_state("trait/sarah_fear_of_king"),
+    # → "Low intensity (was high in Ch 1-500, evolved through therapy)"
+}
+# Tokens: ~5K (current ground truth)
+```
+
+#### 2. Graph-Guided Filtering (Not Everything, Just Relevant)
+```python
+# Phase 2: Use graph edges to find RELEVANT history
+# Sarah's 1000 chapters of interactions DON'T all get retrieved!
+
+# System follows edges from latest states:
+relevant_traits = graph.traverse(
+    from=sarah_latest,
+    relationship="has_trait",
+    min_edge_strength=0.5  # Only significant traits
+)
+# Returns: fear, revenge, compassion (NOT all 50 minor traits)
+
+# Get causality via edges
+for trait in relevant_traits:
+    causes = graph.get_edges(trait, relationship="caused_by")
+    # fear → caused_by → event/parents_murdered
+    # revenge → caused_by → event/kingdom_burned
+    # compassion → caused_by → event/orphan_rescue
+# Tokens: ~3K (key traits WITH causality)
+```
+
+#### 3. Consolidation Levels Auto-Adjusted
+```python
+# Phase 3: Get history at appropriate granularity
+
+# Status query: "What's Sarah's current status?"
+# → Level 0 (latest only, no history needed)
+
+# Recent query: "What happened to Sarah last week?"
+# → Level 1 (daily summaries of Ch 990-1000)
+
+# Overview query: "Summarize Sarah's entire journey"
+# → Level 3 (monthly summaries: Ch 1-100, 100-200, etc.)
+
+# Why query: "Why does Sarah hate the king?"
+# → Level 0 (detailed states, graph-filtered)
+#    But only retrieves: event/parents_murdered + related context
+#    NOT all 1000 chapters!
+
+recent_interactions = get_trace_recent(
+    topic="interaction/sarah_king",
+    limit=5,  # Last 5 only
+    time_window=timedelta(days=30)
+)
+# Tokens: ~5K (recent relevant history)
+```
+
+#### 4. Total Context: ~13K tokens instead of 500K tokens
+
+**But contains ALL critical information:**
+- Latest character state (current truth)
+- Current relationship state
+- Key personality traits WITH causality (edges!)
+- Recent relevant interactions (not ancient history)
+
+**LLM can accurately answer without hallucination:**
+```
+"Sarah would experience complex emotions: hatred (caused by parents' murder,
+Chapter 3) mixed with newfound respect (earned after king sacrificed himself
+to save kingdom, Chapter 890). Her fear, once intense, has diminished through
+therapy (Chapters 600-700). Given her recent interactions showing restraint
+(last 5 encounters), she would likely approach cautiously but without
+aggression, seeking dialogue rather than confrontation..."
+```
+
+### Why This Prevents Hallucination
+
+#### Novel Writing Example
+
+**Query**: "Does Sarah know about her magical heritage?"
+
+**WITHOUT TracingRAG**: LLM might hallucinate
+- "Yes, she learned in Chapter 200" (wrong - it was Chapter 50)
+- "No, she never learned" (wrong - she did learn)
+- Inconsistent answers across queries
+
+**WITH TracingRAG**:
+```python
+# System retrieves:
+knowledge = get_latest_state("knowledge/sarah_heritage")
+# → "Sarah learned about her heritage in Chapter 50 from her mentor"
+
+# Edge provides causality:
+# knowledge --[learned_from]--> event/mentor_revelation (Ch 50)
+
+# LLM response grounded in facts:
+"Yes, Sarah knows about her magical heritage. She learned this
+information in Chapter 50 when her mentor revealed the truth."
+```
+
+**Ground truth always included** → No hallucination possible
+
+#### NPC Simulation Example
+
+**Query**: "Does NPC Marcus trust the player?"
+
+**WITHOUT TracingRAG**: Static or random
+- Always trusts / never trusts
+- No memory of player actions
+
+**WITH TracingRAG**:
+```python
+# System retrieves:
+relationship = get_latest_state("relationship/marcus_to_player")
+# → "Moderate trust (0.6) - player helped once, lied twice"
+
+# Graph shows causality:
+# relationship --[increased_by]--> event/player_saved_village
+# relationship --[decreased_by]--> event/player_lied_about_theft
+# relationship --[decreased_by]--> event/player_broke_promise
+
+# LLM response based on actual history:
+"Marcus has moderate trust (0.6/1.0) in the player. While grateful
+for the player saving his village, he's wary after being lied to
+twice about the theft and broken promise."
+```
+
+**Historical context preserved** → Accurate, consistent behavior
+
+### Multi-Pass Retrieval (When More Detail Needed)
+
+```python
+# Pass 1: LLM sees overview
+context_v1 = {
+    "latest_states": [...],
+    "summary": "Chapters 900-1000: Sarah led rebellion, king sacrificed himself"
+}
+
+response = llm.generate(query, context_v1)
+
+# If LLM needs more detail about specific event:
+if response.needs_drill_down:
+    # Pass 2: Retrieve detailed states for that event only
+    context_v2 = retrieve_within_budget(
+        query=f"Details about {response.drill_down_target}",
+        max_tokens=40000
+    )
+
+    final_response = llm.generate(
+        f"{query} (drill-down: {response.drill_down_target})",
+        context_v2
+    )
+```
+
+### Information Loss vs Context Efficiency
+
+**Key Insight: Not all information is equally relevant to every query!**
+
+#### Novel Query: "How would Sarah react to the king?"
+
+**DON'T need** (filtered by graph):
+- Sarah's conversations with merchants (Chapters 100-150)
+- Detailed location descriptions (all chapters)
+- Complete text of every chapter
+- Sarah's training montages (Chapters 200-300)
+- Minor character interactions
+
+**DO need** (included via graph):
+- Sarah's latest state
+- Sarah-King relationship (latest)
+- Key personality traits (fear, hatred, respect)
+- Causality edges (why she feels this way)
+- Recent Sarah-King interactions (last 5)
+
+#### Codebase Query: "How does authentication work?"
+
+**DON'T need**:
+- Every commit from 5 years ago
+- Unrelated modules
+- Test files
+- Old refactoring details
+
+**DO need**:
+- Current auth implementation (latest)
+- Related middleware (graph-connected)
+- Recent auth changes (last 30 days)
+- Design decisions (consolidated summaries)
+
+**The system uses intelligent filtering (graph + semantic ranking), not random sampling.**
+
+### Result
+
+✅ **No hallucination**: Latest states = ground truth always included
+✅ **No information loss**: All states preserved, accessible via drill-down
+✅ **Context efficient**: Only relevant information included (<100K tokens)
+✅ **Causality preserved**: Graph edges show WHY, not just WHAT
+✅ **Temporal accuracy**: Summaries provide WHEN without every detail
+✅ **Scalable**: Works with millions of states via hierarchical retrieval
+
 ## Key Insight: Generic System, Specific Applications
 
 **TracingRAG remains a general-purpose, domain-agnostic system**. The patterns above show specific applications, but you can apply the same generic primitives to ANY domain:
