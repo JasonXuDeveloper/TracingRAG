@@ -65,6 +65,31 @@ A **trace** is the complete history of a topic's evolution:
 - `timestamp`: When connection was created
 - `metadata`: Why this connection exists
 
+**Edge Lifecycle & Temporal Validity (Critical for Accuracy):**
+- `valid_from`: When this edge became true (default: creation time)
+- `valid_until`: When this edge stopped being true (None = still valid)
+- `superseded_by`: Edge ID that replaced this one (if applicable)
+- `is_active`: Whether edge is currently valid (computed from valid_until)
+
+**Example: Edge Becomes Obsolete**
+```
+Time T1: "Approach X rejected because causes Bug Y"
+→ Edge: approach_X --[rejected_because]--> bug_Y
+→ valid_from: T1, valid_until: None, is_active: True
+
+Time T2: Codebase refactored, Bug Y fixed
+→ Update edge: valid_until = T2, is_active = False
+→ Create new state: approach_X v2 "Now viable after refactoring"
+→ New edge: approach_X_v2 --[viable_after_fix]--> refactoring_event
+→ valid_from: T2, valid_until: None, is_active: True
+
+Query at T3: "Why not approach X?"
+→ System finds approach_X latest state (v2)
+→ Traverses ACTIVE edges only
+→ Returns: "Approach X now viable (refactored T2), was rejected due to Bug Y (fixed)"
+→ Old edge still in graph (for history) but marked inactive
+```
+
 ### 4. Memory Promotion
 Creating a new state by synthesizing information from traces and graphs:
 
@@ -428,11 +453,14 @@ def graph_enhanced_retrieval(query: str, depth: int = 2):
         # Get connected states within depth
         # IMPORTANT: Graph traversal ignores memory_strength
         # Even "forgotten" (low-strength) memories are found if connected
+        # BUT: Only follows ACTIVE edges (valid_until=None or future)
         subgraph = graph_db.traverse(
             start_node=match.id,
             max_depth=depth,
-            relationship_types=["relates_to", "causes", "references"]
+            relationship_types=["relates_to", "causes", "references"],
             # No strength filter - relevance determined by graph structure
+            # Active filter - only current valid edges
+            only_active=True  # Filters to edges where is_active=True
         )
 
         # Walk backwards in trace for context
@@ -512,6 +540,192 @@ def query_at_time(topic: str, timestamp: datetime):
 
     return None  # Didn't exist at that time
 ```
+
+### 5. Handling Obsolete Edges (Temporal Accuracy)
+
+```python
+async def handle_fact_change(
+    old_state_id: UUID,
+    change_description: str
+) -> PromotionResult:
+    """
+    Handle when a fact changes, making old edges obsolete.
+
+    Example: "Bug Y fixed, Approach X now viable"
+    """
+
+    # 1. Create new state documenting the change
+    new_state = await create_memory_state(
+        topic=get_topic_from_state(old_state_id),
+        content=change_description,
+        parent_state_id=old_state_id
+    )
+
+    # 2. Find edges that are now obsolete
+    affected_edges = await find_edges_to_update(old_state_id, change_description)
+
+    # 3. Mark old edges as inactive
+    for edge in affected_edges:
+        await update_edge(
+            edge.id,
+            valid_until=datetime.utcnow(),
+            superseded_by=None  # Could link to new edge if creating one
+        )
+
+    # 4. Create new edges reflecting current truth
+    new_edges = []
+    for old_edge in affected_edges:
+        if should_create_inverse_edge(old_edge):
+            # Example: "rejected_because" → "viable_after_fix"
+            new_edge = await create_edge(
+                source_state_id=new_state.id,
+                target_state_id=get_related_state(old_edge),
+                relationship_type=inverse_relationship(old_edge.relationship_type),
+                description=f"Now viable after: {change_description}",
+                valid_from=datetime.utcnow()
+            )
+            new_edges.append(new_edge)
+
+            # Link old edge to new edge
+            await update_edge(old_edge.id, superseded_by=new_edge.id)
+
+    return PromotionResult(
+        new_state=new_state,
+        previous_state_id=old_state_id,
+        new_edges=new_edges,
+        obsolete_edges=[e.id for e in affected_edges]
+    )
+
+# Helper: Determine if edge should be inverted
+def inverse_relationship(rel_type: RelationshipType) -> RelationshipType:
+    """Get inverse relationship when fact changes"""
+    inversions = {
+        RelationshipType.CONTRADICTS: RelationshipType.SUPPORTS,
+        "rejected_because": "viable_after_fix",
+        "blocked_by": "enabled_by",
+        # ... more inversions
+    }
+    return inversions.get(rel_type, RelationshipType.RELATES_TO)
+```
+
+**Example: Complete Scenario**
+
+```python
+# SCENARIO: Approach X rejected due to Bug Y, then Bug Y fixed
+
+# === Time T1: Initial Decision ===
+approach_x_v1 = create_memory(
+    topic="design/approach_x",
+    content="Considered approach X but rejected due to Bug Y"
+)
+
+bug_y = create_memory(
+    topic="bugs/bug_y",
+    content="Bug Y causes data corruption in approach X"
+)
+
+# Create rejection edge
+rejection_edge = create_edge(
+    source_state_id=approach_x_v1.id,
+    target_state_id=bug_y.id,
+    relationship_type="rejected_because",
+    description="Approach X rejected because it triggers Bug Y",
+    valid_from=T1,
+    valid_until=None  # Currently valid
+)
+
+# === Time T2: Bug Fixed via Refactoring ===
+refactoring = create_memory(
+    topic="refactoring/2024_q1",
+    content="Refactored data layer, Bug Y no longer occurs"
+)
+
+bug_y_v2 = promote_memory(
+    topic="bugs/bug_y",
+    reason="Fixed by refactoring",
+    content="Bug Y fixed: data layer refactored to prevent corruption"
+)
+
+# Mark old rejection edge as obsolete
+update_edge(
+    rejection_edge.id,
+    valid_until=T2,  # No longer valid
+    superseded_by=None  # Will create new edge
+)
+
+# Create new state for approach X
+approach_x_v2 = promote_memory(
+    topic="design/approach_x",
+    reason="Bug Y fixed, approach now viable",
+    content="Approach X now viable after Bug Y fix (refactoring T2)"
+)
+
+# Create new "viable" edge
+viable_edge = create_edge(
+    source_state_id=approach_x_v2.id,
+    target_state_id=refactoring.id,
+    relationship_type="viable_after_fix",
+    description="Approach X now viable due to refactoring",
+    valid_from=T2,
+    valid_until=None  # Currently valid
+)
+
+# Link old to new
+update_edge(rejection_edge.id, superseded_by=viable_edge.id)
+
+# === Time T3: Developer Queries ===
+query("Why don't we use approach X?")
+
+# System retrieves:
+# 1. Latest state: approach_x_v2 (created T2)
+# 2. Traverses ACTIVE edges only
+# 3. Finds: viable_edge (T2, active) → refactoring
+# 4. Does NOT follow: rejection_edge (T1-T2, inactive)
+
+# Returns:
+{
+    "current_answer": "Approach X is now viable (as of T2)",
+    "reasoning": "Enabled by refactoring that fixed Bug Y",
+    "historical_context": "Was previously rejected (T1) due to Bug Y, but that's no longer true",
+    "edges": [
+        {
+            "type": "viable_after_fix",
+            "target": "refactoring",
+            "active": True
+        }
+    ],
+    "obsolete_edges": [
+        {
+            "type": "rejected_because",
+            "target": "bug_y",
+            "active": False,
+            "valid_until": T2,
+            "superseded_by": viable_edge.id
+        }
+    ]
+}
+
+# Historical query: "Why was approach X rejected at T1?"
+query_at_time("design/approach_x", T1)
+# Returns: approach_x_v1 with rejection_edge (which WAS active at T1)
+# Correctly returns historical reason
+
+# Time-aware query: "When did approach X become viable?"
+find_edge_change("design/approach_x", "rejected_because", "viable_after_fix")
+# Returns: T2 (when rejection_edge became inactive, viable_edge created)
+```
+
+**Key Benefits:**
+- **Temporal Accuracy**: Old reasons don't pollute current queries
+- **Historical Preservation**: Can still query "why was it rejected in 2023?"
+- **Explicit Transitions**: Clear audit trail of when/why facts changed
+- **No Data Loss**: Old edges kept but marked inactive
+- **Supersession Tracking**: Know which edge replaced which
+
+**Query Behavior:**
+- Default queries: Only active edges (current truth)
+- Historical queries: Edges active at that time
+- Full history: All edges with validity periods
 
 ## Implementation Phases
 

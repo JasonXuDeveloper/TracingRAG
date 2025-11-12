@@ -156,6 +156,24 @@ class MemoryEdge(BaseModel):
         default=None, description="Human-readable description of why this edge exists"
     )
 
+    # Temporal validity for accurate reasoning
+    valid_from: datetime = Field(
+        default_factory=datetime.utcnow, description="When this edge became true"
+    )
+    valid_until: Optional[datetime] = Field(
+        default=None, description="When this edge stopped being true (None = still valid)"
+    )
+    superseded_by: Optional[UUID] = Field(
+        default=None, description="Edge that replaced this one (if applicable)"
+    )
+
+    @property
+    def is_active(self) -> bool:
+        """Check if edge is currently active"""
+        if self.valid_until is None:
+            return True
+        return datetime.utcnow() < self.valid_until
+
     class Config:
         json_schema_extra = {
             "example": {
