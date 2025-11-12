@@ -1,8 +1,30 @@
-# Domain-Specific Features for Novels & NPCs
+# Domain-Specific Usage Patterns (Examples, Not Requirements)
 
 ## Overview
 
-TracingRAG's core architecture (temporal traces, graphs, memory strength) provides the foundation. However, specific use cases (novel writing, NPC simulation) benefit from additional domain-specific features.
+**IMPORTANT**: TracingRAG's core system is **generic** and **domain-agnostic**. The features below are **usage patterns** and **examples** showing how to apply the generic system to specific domains (novels, NPCs, projects, etc.).
+
+**Core System (Generic & Broad)**:
+- Temporal traces (track ANY entity evolution)
+- Graph relationships (connect ANY concepts)
+- Memory strength (prioritize ANY information)
+- Consolidation (summarize ANY time-series data)
+- Latest state tracking (instant lookup of ANY topic)
+- Temporal edge validity (accurate reasoning for ANY facts)
+
+**Domain Patterns (Examples of Usage)**:
+- Character tracking = trace + entity_schema (you define the schema)
+- Relationship evolution = trace for relationship entity (generic traces)
+- Character knowledge = filtered queries + metadata (generic filtering)
+- Hierarchical structure = topic naming convention (generic topics)
+- NPC decision engine = retrieval + LLM prompting (generic retrieval)
+
+**You can use TracingRAG for ANY domain** that needs:
+- Temporal tracking (how things evolved)
+- Graph connections (how things relate)
+- Accurate memory (what's currently true vs what was true)
+
+The examples below show novel/NPC/project patterns, but the same generic primitives work for: research papers, business decisions, medical records, legal cases, scientific experiments, etc.
 
 ---
 
@@ -986,4 +1008,27 @@ These domain-specific features provide:
 ✅ **Goal-Oriented**: NPCs have motivations that drive actions
 ✅ **Evolving Thoughts**: NPC opinions change based on interactions
 
-These features transform TracingRAG from a general-purpose RAG system into a specialized tool for interactive narrative and character simulation.
+## Key Insight: Generic System, Specific Applications
+
+**TracingRAG remains a general-purpose, domain-agnostic system**. The patterns above show specific applications, but you can apply the same generic primitives to ANY domain:
+
+**Research**: Papers as entities, citations as edges, field evolution as traces
+**Business**: Decisions as states, stakeholders as entities, strategies as traces
+**Medical**: Patients as entities, treatments as traces, diagnoses as states
+**Legal**: Cases as entities, precedents as edges, rulings as states
+**Science**: Experiments as states, hypotheses as traces, findings as edges
+
+The core system provides:
+1. **Generic temporal traces** → You define what to track
+2. **Generic graph relationships** → You define what connects
+3. **Generic memory strength** → You define what's important
+4. **Generic consolidation** → You define time scales
+5. **Generic entity_schema** → You define structure
+
+**The examples are illustrative, not prescriptive**. TracingRAG is broad and capable of solving any problem that involves:
+- Memory evolution over time
+- Complex interconnections
+- Temporal accuracy
+- Graph-based reasoning
+
+These novel/NPC/project patterns simply demonstrate the power of the generic primitives.
