@@ -39,8 +39,8 @@ class MemoryStateDB(Base):
     parent_state_id = Column(PGUUID(as_uuid=True), ForeignKey("memory_states.id"), nullable=True)
     parent = relationship("MemoryStateDB", remote_side=[id], backref="children")
 
-    # Metadata
-    metadata = Column(JSONB, nullable=False, default=dict)
+    # Metadata (using custom_metadata to avoid SQLAlchemy reserved name)
+    custom_metadata = Column("metadata", JSONB, nullable=False, default=dict)
     tags = Column(ARRAY(String), nullable=False, default=list)
     confidence = Column(Float, nullable=False, default=1.0)
     source = Column(String(255), nullable=True)
@@ -86,7 +86,7 @@ class TraceDB(Base):
     state_ids = Column(ARRAY(PGUUID(as_uuid=True)), nullable=False, default=list)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-    metadata = Column(JSONB, nullable=False, default=dict)
+    custom_metadata = Column("metadata", JSONB, nullable=False, default=dict)
     tags = Column(ARRAY(String), nullable=False, default=list)
     is_active = Column(Boolean, nullable=False, default=True)
 

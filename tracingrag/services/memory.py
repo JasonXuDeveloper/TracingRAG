@@ -76,7 +76,7 @@ class MemoryService:
                 timestamp=timestamp,
                 embedding=embedding,
                 parent_state_id=parent_state_id,
-                metadata=metadata or {},
+                custom_metadata=metadata or {},
                 tags=tags or [],
                 confidence=confidence,
                 source=source,
@@ -249,9 +249,9 @@ class MemoryService:
 
             if metadata is not None:
                 # Merge metadata
-                current_metadata = state.metadata or {}
+                current_metadata = state.custom_metadata or {}
                 current_metadata.update(metadata)
-                state.metadata = current_metadata
+                state.custom_metadata = current_metadata
 
             await session.commit()
             await session.refresh(state)
