@@ -10,6 +10,7 @@ from tracingrag.services.embedding import (
     get_embedding_model,
     prepare_text_for_embedding,
 )
+from tracingrag.services.graph import GraphService
 from tracingrag.services.memory import MemoryService
 from tracingrag.services.retrieval import RetrievalResult, RetrievalService
 
@@ -25,4 +26,5 @@ __all__ = [
     "MemoryService",
     "RetrievalService",
     "RetrievalResult",
+    "GraphService",
 ]
