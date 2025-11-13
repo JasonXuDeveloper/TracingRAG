@@ -19,37 +19,40 @@ An enhanced Retrieval-Augmented Generation (RAG) system that combines temporal t
   - High-strength edges: prioritized during graph traversal
   - Graph structure ensures even "distant" memories are discoverable
 - **Importance Learning**: System learns what's important from access patterns
-- **Working Memory**: Context-aware hot cache pre-loads related memories (<10ms queries)
+- **Multi-Layer Caching**: Redis-backed caching for embeddings, queries, and frequently accessed states
 - **Hierarchical Consolidation**: Auto-summarizes at daily/weekly/monthly levels (like human sleep)
-- **Latest State Tracking**: Instant O(1) lookup for "what's the current status?" queries
+- **Latest State Tracking**: Instant O(1) lookup for "what's the current status?" queries (materialized view)
 - **Graph-Based Relevance**: Even old/low-strength memories found via edges to latest states
-- **Storage Tiers**: Hot/warm/cold storage mimics human memory (working/active/archived)
+- **Storage Tier Support**: Infrastructure for hot/warm/cold storage (working/active/archived)
 
 ### Scale & Performance
-- **Instant Latest**: <10ms for current state queries
-- **Working Set**: <10ms for active context (in-memory)
-- **Full Search**: <100ms with caching and optimization
-- **Massive Scale**: Handles millions of states with partitioning and sharding
-- **Space Efficient**: 95% storage savings with diff-based versioning
+- **Instant Latest**: <10ms for current state queries (PostgreSQL materialized views)
+- **Cached Queries**: <10ms for frequently accessed data (Redis caching)
+- **Full Search**: <100ms with vector search optimization and caching
+- **Scalable Storage**: Supports millions of states with PostgreSQL + TimescaleDB partitioning
+- **Space Efficient**: Diff-based versioning support for reduced storage overhead
 
 ## Architecture
 
 TracingRAG uses a multi-layer architecture:
-- **Storage Layer**: Qdrant (vectors), Neo4j (graphs), PostgreSQL (documents)
-- **Core Services**: Memory management, graph operations, embeddings
-- **Agentic Layer**: Query planning, memory promotion, retrieval orchestration
-- **API Layer**: REST/GraphQL endpoints
+- **Storage Layer**: Qdrant (vectors), Neo4j (graphs), PostgreSQL + TimescaleDB (documents)
+- **Core Services**: Memory management, graph operations, embeddings, caching (Redis)
+- **Agentic Layer**: LLM-based query planning, memory promotion, retrieval orchestration
+- **API Layer**: FastAPI REST endpoints with async support
 
 See [DESIGN.md](DESIGN.md) for detailed architecture and design decisions.
 
 ## Tech Stack
 
-- **Python 3.11+** with FastAPI
-- **Qdrant** for vector storage
-- **Neo4j** for graph database
-- **PostgreSQL + TimescaleDB** for document storage
-- **LangGraph** for agentic workflows
-- **OpenRouter** for LLM access
+- **Python 3.11+** with FastAPI and asyncio
+- **Qdrant** for vector storage and semantic search
+- **Neo4j** for graph database and relationship tracking
+- **PostgreSQL + TimescaleDB** for document storage and temporal queries
+- **Redis** for caching and working memory
+- **OpenRouter/OpenAI API** for LLM access (structured output, query analysis, synthesis)
+- **SentenceTransformers** for local embeddings (all-mpnet-base-v2)
+- **Prometheus** for metrics and monitoring
+- **Structlog** for structured JSON logging
 
 ## Quick Start
 
@@ -327,4 +330,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 Inspired by:
 - [Zep's Graphiti](https://www.getzep.com/) - Temporal knowledge graphs
 - [Microsoft GraphRAG](https://github.com/microsoft/graphrag) - Graph-based RAG
-- [LangGraph](https://github.com/langchain-ai/langgraph) - Agentic workflows
+- [LangChain](https://github.com/langchain-ai/langchain) - LLM application patterns
