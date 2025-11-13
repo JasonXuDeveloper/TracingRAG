@@ -44,30 +44,63 @@ OPENROUTER_API_KEY=sk-or-v1-...
 # Start all services (Qdrant, Neo4j, PostgreSQL, Redis)
 docker-compose up -d
 
-# Verify services are running
-docker-compose ps
+# Wait for services to initialize (30-60 seconds)
+# You can watch the logs:
+docker-compose logs -f
 ```
 
-You should see:
-- `tracingrag-qdrant` on ports 6333, 6334
-- `tracingrag-neo4j` on ports 7474, 7687
-- `tracingrag-postgres` on port 5432
-- `tracingrag-redis` on port 6379
+**Required services:**
+- ✅ `tracingrag-postgres` on port 5432 - Document storage
+- ✅ `tracingrag-neo4j` on ports 7474, 7687 - Graph database
+- ✅ `tracingrag-qdrant` on ports 6333, 6334 - Vector search
+
+**Optional (but recommended) services:**
+- ⭐ `tracingrag-redis` on port 6379 - Caching layer
+  - **Without Redis**: Only in-memory caching (1000 items max)
+  - **With Redis**: Full caching for embeddings, queries, working memory
+
+Verify services are running:
+```bash
+docker-compose ps
+```
 
 ## Step 4: Initialize Databases
 
 ```bash
-# Run database migrations
+# Run PostgreSQL migrations
 poetry run alembic upgrade head
 
-# Initialize Neo4j schema
+# Initialize Neo4j schema (constraints and indexes)
 poetry run python scripts/init_neo4j.py
 
-# Initialize Qdrant collections
+# Initialize Qdrant collection
 poetry run python scripts/init_qdrant.py
 ```
 
-## Step 5: Start the API
+## Step 5: Verify Setup
+
+**Important:** Run the verification script to ensure everything is configured correctly:
+
+```bash
+poetry run python scripts/verify_setup.py
+```
+
+This will check:
+- ✅ PostgreSQL connection and migrations
+- ✅ Neo4j connection and schema
+- ✅ Qdrant collection setup
+- ✅ OpenRouter API key configuration
+- ✅ Embedding model loading
+- ⭐ Redis caching (optional)
+
+**Expected output:**
+```
+✅ All required services are working!
+✅ Optional Redis caching is enabled  # or warning if Redis unavailable
+🚀 You're ready to start TracingRAG!
+```
+
+## Step 6: Start the API
 
 ```bash
 # Development mode (with auto-reload)
@@ -81,13 +114,15 @@ The API will be available at: `http://localhost:8000`
 
 API documentation: `http://localhost:8000/docs`
 
-## Step 6: Test the Installation
+## Step 7: Test the Installation
 
 ### Option A: Using the Web UI
 
 Navigate to `http://localhost:8000/docs` and use the Swagger UI to test endpoints.
 
-### Option B: Using Python
+### Option B: Using the Python Client
+
+The Python client provides a convenient interface to the REST API:
 
 ```python
 from tracingrag.client import TracingRAGClient
