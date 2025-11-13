@@ -1,9 +1,34 @@
 """Tests for caching service"""
 
-import pytest
+import asyncio
 from datetime import timedelta
 
+import pytest
+
 from tracingrag.services.cache import CacheService
+
+
+# Check if Redis is available
+def is_redis_available():
+    """Check if Redis is available for testing"""
+    import redis.asyncio as redis
+
+    async def check():
+        try:
+            client = redis.Redis(host="localhost", port=6379, db=0)
+            await client.ping()
+            await client.close()
+            return True
+        except Exception:
+            return False
+
+    return asyncio.run(check())
+
+
+# Skip all tests in this module if Redis is not available
+pytestmark = pytest.mark.skipif(
+    not is_redis_available(), reason="Redis is not available (optional service)"
+)
 
 
 class TestCacheService:
@@ -189,7 +214,7 @@ class TestQueryCache:
         service = CacheService()
         yield service
         try:
-            await cache_service.clear_all()
+            await service.clear_all()
             await service.close()
         except Exception:
             pass
@@ -248,7 +273,7 @@ class TestWorkingMemoryCache:
         service = CacheService()
         yield service
         try:
-            await cache_service.clear_all()
+            await service.clear_all()
             await service.close()
         except Exception:
             pass
@@ -289,7 +314,7 @@ class TestLatestStateCache:
         service = CacheService()
         yield service
         try:
-            await cache_service.clear_all()
+            await service.clear_all()
             await service.close()
         except Exception:
             pass
@@ -334,7 +359,7 @@ class TestCacheStats:
         service = CacheService()
         yield service
         try:
-            await cache_service.clear_all()
+            await service.clear_all()
             await service.close()
         except Exception:
             pass

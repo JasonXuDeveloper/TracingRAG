@@ -7,7 +7,6 @@ from uuid import UUID
 
 from tracingrag.core.models.rag import (
     LLMRequest,
-    QueryType,
     RAGContext,
     RAGResponse,
 )

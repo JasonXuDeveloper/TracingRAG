@@ -368,14 +368,11 @@ class TestRAGIntegration:
     def test_rag_models_import(self):
         """Test that RAG models can be imported"""
         from tracingrag.core.models import (
-            ConsolidationLevel,
-            ContextBudget,
             LLMRequest,
             LLMResponse,
             QueryType,
             RAGContext,
             RAGResponse,
-            TokenEstimate,
         )
 
         assert QueryType is not None
@@ -397,12 +394,10 @@ class TestRAGIntegration:
     async def test_end_to_end_imports(self):
         """Test complete import chain"""
         # Models
-        from tracingrag.core.models.rag import QueryType, RAGContext
+        from tracingrag.core.models.rag import QueryType
 
         # Services
         from tracingrag.services.context import ContextBuilder
-        from tracingrag.services.query_analyzer import QueryAnalyzer
-        from tracingrag.services.rag import RAGService
 
         # Create instances
         builder = ContextBuilder()

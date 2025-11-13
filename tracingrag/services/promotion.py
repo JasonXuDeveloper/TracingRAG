@@ -1,12 +1,11 @@
 """Memory promotion service for intelligent synthesis and consolidation"""
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracingrag.core.models.graph import RelationshipType
 from tracingrag.core.models.promotion import (

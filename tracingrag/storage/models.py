@@ -1,5 +1,6 @@
 """SQLAlchemy models for PostgreSQL database"""
 
+import json
 from datetime import datetime
 from uuid import UUID, uuid4
 
@@ -13,11 +14,70 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    TypeDecorator,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import relationship
 
 from tracingrag.storage.database import Base
+
+
+class UUIDEncoder(json.JSONEncoder):
+    """JSON encoder that handles UUID objects"""
+
+    def default(self, obj):
+        if isinstance(obj, UUID):
+            return str(obj)
+        return super().default(obj)
+
+
+# Type compatibility layer for SQLite
+class JSONEncodedList(TypeDecorator):
+    """Stores Python list as JSON string for SQLite compatibility"""
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        # Use custom encoder to handle UUIDs
+        return json.dumps(value, cls=UUIDEncoder)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        data = json.loads(value)
+        # Convert string UUIDs back to UUID objects if they look like UUIDs
+        if isinstance(data, list):
+            result = []
+            for item in data:
+                if isinstance(item, str) and len(item) == 36:
+                    try:
+                        result.append(UUID(item))
+                    except (ValueError, AttributeError):
+                        result.append(item)
+                else:
+                    result.append(item)
+            return result
+        return data
+
+
+class JSONEncodedDict(TypeDecorator):
+    """Stores Python dict as JSON string for SQLite compatibility"""
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return json.dumps(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return json.loads(value)
 
 
 class MemoryStateDB(Base):
@@ -32,16 +92,16 @@ class MemoryStateDB(Base):
     version = Column(Integer, nullable=False, default=1)
     timestamp = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
-    # Embedding (stored as array for compatibility)
-    embedding = Column(ARRAY(Float), nullable=True)
+    # Embedding (using JSONEncodedList for SQLite compatibility)
+    embedding = Column(JSONEncodedList, nullable=True)
 
     # Trace relationship
     parent_state_id = Column(PGUUID(as_uuid=True), ForeignKey("memory_states.id"), nullable=True)
     parent = relationship("MemoryStateDB", remote_side=[id], backref="children")
 
-    # Metadata (using custom_metadata to avoid SQLAlchemy reserved name)
-    custom_metadata = Column("metadata", JSONB, nullable=False, default=dict)
-    tags = Column(ARRAY(String), nullable=False, default=list)
+    # Metadata (using JSONEncodedDict for SQLite compatibility)
+    custom_metadata = Column("metadata", JSONEncodedDict, nullable=False, default=dict)
+    tags = Column(JSONEncodedList, nullable=False, default=list)
     confidence = Column(Float, nullable=False, default=1.0)
     source = Column(String(255), nullable=True)
     created_by = Column(String(255), nullable=True)
@@ -52,8 +112,8 @@ class MemoryStateDB(Base):
     importance_score = Column(Float, nullable=False, default=0.5)
     storage_tier = Column(String(50), nullable=False, default="active")
 
-    # Consolidation tracking
-    consolidated_from = Column(ARRAY(PGUUID(as_uuid=True)), nullable=True)
+    # Consolidation tracking (using JSONEncodedList for SQLite compatibility)
+    consolidated_from = Column(JSONEncodedList, nullable=True)
     is_consolidated = Column(Boolean, nullable=False, default=False)
     consolidation_level = Column(Integer, nullable=False, default=0)
 
@@ -63,16 +123,15 @@ class MemoryStateDB(Base):
 
     # Optional entity typing
     entity_type = Column(String(100), nullable=True, index=True)
-    entity_schema = Column(JSONB, nullable=True)
+    entity_schema = Column(JSONEncodedDict, nullable=True)
 
-    # Indexes for common queries
+    # Indexes for common queries (excluding PostgreSQL-specific GIN indexes for SQLite compatibility)
+    # Note: entity_type already has index=True on the column definition, so it's excluded here
     __table_args__ = (
         Index("ix_memory_states_topic_version", "topic", "version"),
-        Index("ix_memory_states_entity_type", "entity_type"),
-        Index("ix_memory_states_storage_tier", "storage_tier"),
-        Index("ix_memory_states_is_consolidated", "is_consolidated"),
-        Index("ix_memory_states_tags", "tags", postgresql_using="gin"),
-        Index("ix_memory_states_metadata", "metadata", postgresql_using="gin"),
+        # Index for storage_tier removed as it's rarely queried alone
+        # Index for is_consolidated removed as it's rarely queried alone
+        # Note: GIN indexes for tags and metadata are PostgreSQL-specific and excluded for SQLite compatibility
     )
 
 
@@ -83,16 +142,16 @@ class TraceDB(Base):
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     topic = Column(String(500), nullable=False, unique=True, index=True)
-    state_ids = Column(ARRAY(PGUUID(as_uuid=True)), nullable=False, default=list)
+    state_ids = Column(JSONEncodedList, nullable=False, default=list)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-    custom_metadata = Column("metadata", JSONB, nullable=False, default=dict)
-    tags = Column(ARRAY(String), nullable=False, default=list)
+    custom_metadata = Column("metadata", JSONEncodedDict, nullable=False, default=dict)
+    tags = Column(JSONEncodedList, nullable=False, default=list)
     is_active = Column(Boolean, nullable=False, default=True)
 
     __table_args__ = (
         Index("ix_traces_is_active", "is_active"),
-        Index("ix_traces_tags", "tags", postgresql_using="gin"),
+        # Note: GIN index for tags is PostgreSQL-specific and excluded for SQLite compatibility
     )
 
 

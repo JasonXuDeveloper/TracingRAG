@@ -1,14 +1,15 @@
 """Tests for memory promotion service"""
 
-import pytest
-from uuid import uuid4
 from datetime import datetime
+from uuid import uuid4
+
+import pytest
 
 from tracingrag.core.models.promotion import (
     Conflict,
-    ConflictType,
     ConflictResolution,
     ConflictResolutionStrategy,
+    ConflictType,
     EdgeUpdate,
     PromotionCandidate,
     PromotionRequest,
@@ -246,7 +247,6 @@ class TestPromotionService:
     @pytest.mark.asyncio
     async def test_check_citations_with_references(self, promotion_service):
         """Test citation check with content that has references"""
-        from tracingrag.storage.models import MemoryStateDB
 
         sources = [
             SynthesisSource(
@@ -490,7 +490,7 @@ class TestAutomaticPromotion:
 
     def test_promotion_policy_creation(self):
         """Test creating a promotion policy"""
-        from tracingrag.core.models.promotion import PromotionPolicy, PromotionMode
+        from tracingrag.core.models.promotion import PromotionMode, PromotionPolicy
 
         policy = PromotionPolicy(
             mode=PromotionMode.AUTOMATIC,
@@ -505,7 +505,7 @@ class TestAutomaticPromotion:
 
     def test_promotion_policy_defaults(self):
         """Test promotion policy default values"""
-        from tracingrag.core.models.promotion import PromotionPolicy, PromotionMode
+        from tracingrag.core.models.promotion import PromotionMode, PromotionPolicy
 
         policy = PromotionPolicy()
 
@@ -539,8 +539,8 @@ class TestAutomaticPromotion:
     @pytest.mark.asyncio
     async def test_promotion_service_with_policy(self):
         """Test promotion service instantiation with policy"""
+        from tracingrag.core.models.promotion import PromotionMode, PromotionPolicy
         from tracingrag.services.promotion import PromotionService
-        from tracingrag.core.models.promotion import PromotionPolicy, PromotionMode
 
         policy = PromotionPolicy(mode=PromotionMode.AUTOMATIC)
         service = PromotionService(policy=policy)
@@ -551,9 +551,10 @@ class TestAutomaticPromotion:
     @pytest.mark.asyncio
     async def test_evaluate_after_insertion_manual_mode(self):
         """Test that evaluate_after_insertion returns None in manual mode"""
-        from tracingrag.services.promotion import PromotionService
-        from tracingrag.core.models.promotion import PromotionPolicy, PromotionMode
         from uuid import uuid4
+
+        from tracingrag.core.models.promotion import PromotionMode, PromotionPolicy
+        from tracingrag.services.promotion import PromotionService
 
         policy = PromotionPolicy(mode=PromotionMode.MANUAL)
         service = PromotionService(policy=policy)

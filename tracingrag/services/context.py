@@ -1,8 +1,5 @@
 """Context building for RAG pipeline"""
 
-from datetime import datetime, timedelta
-from typing import Any
-from uuid import UUID
 
 from tracingrag.core.models.memory import MemoryState
 from tracingrag.core.models.rag import (
@@ -13,7 +10,7 @@ from tracingrag.core.models.rag import (
     TokenEstimate,
 )
 from tracingrag.services.query_analyzer import QueryAnalyzer, get_query_analyzer
-from tracingrag.services.retrieval import RetrievalResult, RetrievalService
+from tracingrag.services.retrieval import RetrievalService
 
 
 class ContextBuilder:

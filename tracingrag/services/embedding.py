@@ -102,8 +102,6 @@ async def compute_similarity(embedding1: list[float], embedding2: list[float]) -
     Returns:
         Cosine similarity score (0-1)
     """
-    model = get_embedding_model()
-
     # Convert to tensors
     tensor1 = torch.tensor(embedding1)
     tensor2 = torch.tensor(embedding2)
@@ -114,7 +112,9 @@ async def compute_similarity(embedding1: list[float], embedding2: list[float]) -
         tensor2.unsqueeze(0),
     )
 
-    return float(similarity.item())
+    # Normalize from [-1, 1] to [0, 1]
+    normalized = (float(similarity.item()) + 1.0) / 2.0
+    return normalized
 
 
 async def compute_similarities_batch(
@@ -140,7 +140,9 @@ async def compute_similarities_batch(
         candidate_tensor,
     )
 
-    return similarities.tolist()
+    # Normalize from [-1, 1] to [0, 1]
+    normalized = (similarities + 1.0) / 2.0
+    return normalized.tolist()
 
 
 def get_embedding_dimension() -> int:
@@ -376,7 +378,7 @@ class EmbeddingService:
 
             # Store in caches and fill results
             for idx, text, embedding in zip(
-                uncached_indices, uncached_texts, uncached_embeddings
+                uncached_indices, uncached_texts, uncached_embeddings, strict=False
             ):
                 results[idx] = embedding
 

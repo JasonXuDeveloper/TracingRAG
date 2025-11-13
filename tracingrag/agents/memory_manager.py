@@ -2,7 +2,6 @@
 
 import json
 from typing import Any
-from uuid import UUID
 
 from tracingrag.agents.models import MemorySuggestion
 from tracingrag.core.models.rag import LLMRequest

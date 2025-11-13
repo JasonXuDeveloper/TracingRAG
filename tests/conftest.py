@@ -1,8 +1,7 @@
 """Pytest configuration and fixtures for TracingRAG tests"""
 
-import asyncio
 import os
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -12,7 +11,7 @@ os.environ["OPENROUTER_API_KEY"] = "test_key_for_testing"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
 from tracingrag.storage.database import Base
-from tracingrag.storage.models import MemoryStateDB, TopicLatestStateDB, TraceDB
+from tracingrag.storage.models import MemoryStateDB
 
 
 @pytest.fixture(scope="session")
@@ -36,16 +35,21 @@ async def test_db_engine():
 
 @pytest.fixture
 async def db_session(test_db_engine) -> AsyncGenerator[AsyncSession, None]:
-    """Create a database session for testing"""
+    """Create a database session for testing with automatic rollback"""
+    connection = await test_db_engine.connect()
+    transaction = await connection.begin()
+
     async_session_factory = async_sessionmaker(
-        test_db_engine,
+        bind=connection,
         class_=AsyncSession,
         expire_on_commit=False,
     )
 
     async with async_session_factory() as session:
         yield session
-        await session.rollback()
+        # Always rollback the transaction to isolate tests
+        await transaction.rollback()
+        await connection.close()
 
 
 @pytest.fixture

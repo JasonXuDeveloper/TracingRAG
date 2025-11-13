@@ -158,7 +158,7 @@ class QueryAnalyzer:
                 "entities": analysis.get("entities", []),
                 "reasoning": analysis.get("reasoning", ""),
             }
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
+        except (json.JSONDecodeError, KeyError, ValueError):
             # Fallback to rule-based if LLM response is invalid
             return self._analyze_with_rules(query)
 

@@ -9,7 +9,7 @@ from sqlalchemy import and_, select
 from tracingrag.services.embedding import generate_embedding
 from tracingrag.storage.database import get_session
 from tracingrag.storage.models import MemoryStateDB, TopicLatestStateDB
-from tracingrag.storage.neo4j_client import get_related_memories, get_topic_history
+from tracingrag.storage.neo4j_client import get_related_memories
 from tracingrag.storage.qdrant import search_similar
 
 

@@ -4,11 +4,9 @@ import logging
 import sys
 from contextvars import ContextVar
 from datetime import datetime
-from typing import Any
 from uuid import uuid4
 
 import structlog
-
 
 # Context variable for request ID
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="")

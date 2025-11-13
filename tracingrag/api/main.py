@@ -2,8 +2,6 @@
 
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import Any
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
@@ -11,24 +9,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from tracingrag.agents.service import AgentService
 from tracingrag.api.schemas import (
     CreateMemoryRequest,
-    ErrorResponse,
     HealthResponse,
     MemoryListResponse,
     MemoryStateResponse,
     MetricsResponse,
     PromoteMemoryRequest,
     PromoteMemoryResponse,
-    PromotionCandidatesResponse,
     PromotionCandidateResponse,
+    PromotionCandidatesResponse,
     QueryRequest,
     QueryResponse,
 )
-from tracingrag.agents.service import AgentService
 from tracingrag.core.models.promotion import PromotionRequest as PromotionServiceRequest
 from tracingrag.services.memory import MemoryService
-from tracingrag.services.metrics import MetricsCollector, get_metrics, get_content_type
+from tracingrag.services.metrics import MetricsCollector, get_content_type, get_metrics
 from tracingrag.services.promotion import PromotionService
 from tracingrag.services.rag import RAGService
 from tracingrag.storage.database import get_session

@@ -1,7 +1,6 @@
 """Agent service for orchestrating intelligent query processing"""
 
 import time
-from datetime import datetime
 
 from tracingrag.agents.memory_manager import MemoryManagerAgent
 from tracingrag.agents.models import AgentResult, AgentState

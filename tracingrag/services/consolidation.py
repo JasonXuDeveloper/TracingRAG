@@ -7,7 +7,6 @@ summarizes and rolls up memory states at daily, weekly, and monthly intervals.
 import asyncio
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field

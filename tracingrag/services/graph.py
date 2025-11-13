@@ -1,13 +1,14 @@
 """Graph service for edge management and relationship tracking"""
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from tracingrag.core.models.graph import Edge, EdgeStrengthFactors, RelationshipType
-from tracingrag.services.embedding import compute_similarity, generate_embedding
 from tracingrag.storage.neo4j_client import (
     create_evolution_edge as neo4j_create_edge,
+)
+from tracingrag.storage.neo4j_client import (
     get_neo4j_driver,
 )
 

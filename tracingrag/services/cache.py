@@ -478,7 +478,7 @@ class CacheService:
             batch = texts[i : i + batch_size]
             embeddings = await embedding_service.embed_batch(batch)
 
-            for text, embedding in zip(batch, embeddings):
+            for text, embedding in zip(batch, embeddings, strict=False):
                 await self.set_embedding(text, model, embedding)
                 count += 1
 

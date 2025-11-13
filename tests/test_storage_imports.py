@@ -1,6 +1,5 @@
 """Tests for storage module imports and basic functionality"""
 
-import pytest
 
 
 class TestStorageImports:

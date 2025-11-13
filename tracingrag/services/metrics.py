@@ -1,18 +1,17 @@
 """Prometheus metrics service for monitoring"""
 
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable
 
 from prometheus_client import (
+    CONTENT_TYPE_LATEST,
     Counter,
     Gauge,
     Histogram,
     Info,
     generate_latest,
-    CONTENT_TYPE_LATEST,
 )
-
 
 # ============================================================================
 # System Metrics
