@@ -102,6 +102,63 @@ The API will be available at `http://localhost:8000`
 
 API documentation: `http://localhost:8000/docs`
 
+## REST API
+
+TracingRAG provides a comprehensive REST API for all operations:
+
+### Available Endpoints
+
+**System**:
+- `GET /` - API information
+- `GET /health` - Health check
+- `GET /metrics` - System metrics
+
+**Memory Management**:
+- `POST /api/v1/memories` - Create memory state
+- `GET /api/v1/memories/{id}` - Get memory by ID
+- `GET /api/v1/memories` - List memories (with pagination and filtering)
+- `GET /api/v1/traces/{topic}` - Get version history for a topic
+
+**Query/RAG**:
+- `POST /api/v1/query` - Query the RAG system (supports both standard and agent-based retrieval)
+
+**Promotion**:
+- `POST /api/v1/promote` - Promote a memory state
+- `GET /api/v1/promotion-candidates` - Get topics that are candidates for promotion
+
+### Interactive Documentation
+
+- **Swagger UI**: `http://localhost:8000/docs` - Interactive API explorer
+- **ReDoc**: `http://localhost:8000/redoc` - API reference documentation
+- **OpenAPI JSON**: `http://localhost:8000/openapi.json` - Machine-readable API spec
+
+### Quick API Example
+
+```bash
+# Create a memory
+curl -X POST http://localhost:8000/api/v1/memories \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic": "project_alpha",
+    "content": "Initial design for API authentication",
+    "tags": ["design", "security"],
+    "confidence": 0.95
+  }'
+
+# Query the RAG system
+curl -X POST http://localhost:8000/api/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What is the status of project alpha?",
+    "use_agent": false
+  }'
+
+# Get promotion candidates
+curl "http://localhost:8000/api/v1/promotion-candidates?limit=10&min_priority=7"
+```
+
+For complete API documentation, see [docs/API_GUIDE.md](docs/API_GUIDE.md).
+
 ## Project Structure
 
 ```

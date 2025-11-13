@@ -332,20 +332,20 @@ Implement query processing and basic retrieval-augmented generation.
   - [x] Confidence scoring
   - [x] Performance metrics (retrieval/generation time, token counts)
 
-- [ ] **FastAPI Endpoints** (deferred to API implementation phase)
-  - [ ] POST /api/v1/query
-  - [ ] GET /api/v1/memories/{id}
-  - [ ] POST /api/v1/memories
-  - [ ] GET /api/v1/traces/{topic}
-  - [ ] Health check endpoint
-  - [ ] Metrics endpoint
+- [x] **FastAPI Endpoints** ✅ COMPLETED (implemented in API layer)
+  - [x] POST /api/v1/query
+  - [x] GET /api/v1/memories/{id}
+  - [x] POST /api/v1/memories
+  - [x] GET /api/v1/traces/{topic}
+  - [x] Health check endpoint
+  - [x] Metrics endpoint
 
 ### Deliverables
 - ✅ End-to-end query→retrieval→generation working (RAGService.query())
 - ✅ LLM integration complete (LLMClient with OpenRouter)
 - ✅ Context building with intelligent budgeting (ContextBuilder)
 - ✅ 30 tests passing (100% for RAG components)
-- ⏳ REST API functional (deferred to API layer implementation)
+- ✅ REST API functional (FastAPI with comprehensive endpoints)
 
 ### Success Criteria
 ```python
@@ -501,10 +501,10 @@ Implement intelligent memory synthesis and promotion.
   - [x] Confidence scoring (multi-factor calculation)
   - [x] Human-in-the-loop option (manual_review_needed flag)
 
-- [ ] **API Endpoints** (deferred to API layer implementation)
-  - [ ] POST /api/v1/promote
-  - [ ] GET /api/v1/promotion-candidates
-  - [ ] POST /api/v1/resolve-conflict
+- [x] **API Endpoints** ✅ COMPLETED (implemented in API layer)
+  - [x] POST /api/v1/promote
+  - [x] GET /api/v1/promotion-candidates
+  - [x] POST /api/v1/resolve-conflict (via manual_review_needed flag in promote endpoint)
 
 ### Deliverables
 - ✅ Manual promotion working (PromotionService.promote_memory)
