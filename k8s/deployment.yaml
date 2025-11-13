@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tracingrag-api
+  labels:
+    app: tracingrag
+    component: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tracingrag
+      component: api
+  template:
+    metadata:
+      labels:
+        app: tracingrag
+        component: api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/your-org/tracingrag:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+              protocol: TCP
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tracingrag-secrets
+                  key: database-url
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tracingrag-secrets
+                  key: redis-url
+            - name: QDRANT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: tracingrag-config
+                  key: qdrant-url
+            - name: NEO4J_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: tracingrag-config
+                  key: neo4j-uri
+            - name: NEO4J_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: tracingrag-secrets
+                  key: neo4j-username
+            - name: NEO4J_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tracingrag-secrets
+                  key: neo4j-password
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tracingrag-secrets
+                  key: openrouter-api-key
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tracingrag-secrets
+                  key: jwt-secret-key
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false
+      restartPolicy: Always
+      securityContext:
+        fsGroup: 1000

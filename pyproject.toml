@@ -48,6 +48,10 @@ httpx = "^0.27.2"
 tenacity = "^9.0.0"
 structlog = "^24.4.0"
 
+# Security
+pyjwt = "^2.10.1"
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+
 # Monitoring
 prometheus-client = "^0.21.0"
 

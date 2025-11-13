@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: tracingrag-api
+  labels:
+    app: tracingrag
+    component: api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: tracingrag
+    component: api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tracingrag-metrics
+  labels:
+    app: tracingrag
+    component: metrics
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: metrics
+  selector:
+    app: tracingrag
+    component: api
