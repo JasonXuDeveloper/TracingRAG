@@ -6,9 +6,10 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from tracingrag.api.schemas import (
     CreateMemoryRequest,
@@ -27,6 +28,7 @@ from tracingrag.api.schemas import (
 from tracingrag.agents.service import AgentService
 from tracingrag.core.models.promotion import PromotionRequest as PromotionServiceRequest
 from tracingrag.services.memory import MemoryService
+from tracingrag.services.metrics import MetricsCollector, get_metrics, get_content_type
 from tracingrag.services.promotion import PromotionService
 from tracingrag.services.rag import RAGService
 from tracingrag.storage.database import get_session
@@ -76,6 +78,52 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============================================================================
+# Middleware
+# ============================================================================
+
+
+class MetricsMiddleware(BaseHTTPMiddleware):
+    """Middleware to track API request metrics"""
+
+    async def dispatch(self, request: Request, call_next):
+        # Skip metrics endpoint to avoid recursion
+        if request.url.path == "/metrics":
+            return await call_next(request)
+
+        start_time = time.time()
+
+        # Track active requests
+        from tracingrag.services.metrics import api_active_requests
+
+        api_active_requests.labels(
+            method=request.method, endpoint=request.url.path
+        ).inc()
+
+        try:
+            response = await call_next(request)
+            duration = time.time() - start_time
+
+            # Record metrics
+            MetricsCollector.record_api_request(
+                method=request.method,
+                endpoint=request.url.path,
+                status=response.status_code,
+                duration=duration,
+            )
+
+            return response
+        finally:
+            # Decrease active requests
+            api_active_requests.labels(
+                method=request.method, endpoint=request.url.path
+            ).dec()
+
+
+# Add metrics middleware
+app.add_middleware(MetricsMiddleware)
 
 
 # ============================================================================
@@ -401,6 +449,12 @@ async def get_promotion_candidates(limit: int = 10, min_priority: int = 5):
 # ============================================================================
 
 
+@app.get("/metrics", tags=["System"])
+async def prometheus_metrics():
+    """Prometheus metrics endpoint"""
+    return Response(content=get_metrics(), media_type=get_content_type())
+
+
 @app.get("/", tags=["System"])
 async def root():
     """Root endpoint with API information"""
@@ -410,5 +464,5 @@ async def root():
         "description": "Enhanced RAG system with temporal tracing, graph relationships, and agentic retrieval",
         "docs": "/docs",
         "health": "/health",
-        "metrics": "/metrics",
+        "prometheus_metrics": "/metrics",
     }
