@@ -27,6 +27,9 @@ asyncpg = "^0.30.0"
 alembic = "^1.14.0"
 psycopg2-binary = "^2.9.10"
 
+# Caching
+redis = {extras = ["hiredis"], version = "^7.0.1"}
+
 # Embeddings
 sentence-transformers = "^3.3.1"
 torch = "^2.5.1"

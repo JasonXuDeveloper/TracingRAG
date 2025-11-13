@@ -246,3 +246,164 @@ async def generate_embedding_cached(text: str, use_cache: bool = True) -> list[f
         await _embedding_cache.set(text, embedding)
 
     return embedding
+
+
+class EmbeddingService:
+    """Embedding service with Redis caching support"""
+
+    def __init__(self, use_redis_cache: bool = True):
+        """Initialize embedding service
+
+        Args:
+            use_redis_cache: Whether to use Redis cache (falls back to in-memory if False)
+        """
+        self.use_redis_cache = use_redis_cache
+        self._cache_service = None
+
+    async def _get_cache(self):
+        """Get cache service (lazy initialization)"""
+        if self.use_redis_cache and self._cache_service is None:
+            from tracingrag.services.cache import get_cache_service
+
+            self._cache_service = get_cache_service()
+        return self._cache_service
+
+    async def embed(self, text: str, use_cache: bool = True) -> list[float]:
+        """Generate embedding with caching
+
+        Args:
+            text: Text to embed
+            use_cache: Whether to use cache
+
+        Returns:
+            Embedding vector
+        """
+        if not use_cache:
+            return await generate_embedding(text)
+
+        # Try Redis cache first
+        if self.use_redis_cache:
+            cache = await self._get_cache()
+            if cache:
+                try:
+                    cached = await cache.get_embedding(
+                        text, settings.embedding_model
+                    )
+                    if cached is not None:
+                        return cached
+                except Exception:
+                    # Fall back to no cache on Redis errors
+                    pass
+
+        # Fall back to in-memory cache
+        cached = await _embedding_cache.get(text)
+        if cached is not None:
+            return cached
+
+        # Generate embedding
+        embedding = await generate_embedding(text)
+
+        # Store in caches
+        if use_cache:
+            # Store in in-memory cache
+            await _embedding_cache.set(text, embedding)
+
+            # Store in Redis cache
+            if self.use_redis_cache:
+                cache = await self._get_cache()
+                if cache:
+                    try:
+                        await cache.set_embedding(
+                            text, settings.embedding_model, embedding
+                        )
+                    except Exception:
+                        # Silently fail on cache write errors
+                        pass
+
+        return embedding
+
+    async def embed_batch(
+        self, texts: list[str], batch_size: int = 32, use_cache: bool = True
+    ) -> list[list[float]]:
+        """Generate embeddings for multiple texts with caching
+
+        Args:
+            texts: Texts to embed
+            batch_size: Batch size for processing
+            use_cache: Whether to use cache
+
+        Returns:
+            List of embedding vectors
+        """
+        if not use_cache:
+            return await generate_embeddings_batch(texts, batch_size)
+
+        results: list[list[float]] = []
+        uncached_texts: list[str] = []
+        uncached_indices: list[int] = []
+
+        # Check cache for each text
+        cache = await self._get_cache() if self.use_redis_cache else None
+
+        for i, text in enumerate(texts):
+            cached = None
+
+            # Try Redis cache first
+            if cache:
+                try:
+                    cached = await cache.get_embedding(
+                        text, settings.embedding_model
+                    )
+                except Exception:
+                    pass
+
+            # Fall back to in-memory cache
+            if cached is None:
+                cached = await _embedding_cache.get(text)
+
+            if cached is not None:
+                results.append(cached)
+            else:
+                results.append([])  # Placeholder
+                uncached_texts.append(text)
+                uncached_indices.append(i)
+
+        # Generate embeddings for uncached texts
+        if uncached_texts:
+            uncached_embeddings = await generate_embeddings_batch(
+                uncached_texts, batch_size
+            )
+
+            # Store in caches and fill results
+            for idx, text, embedding in zip(
+                uncached_indices, uncached_texts, uncached_embeddings
+            ):
+                results[idx] = embedding
+
+                # Store in in-memory cache
+                await _embedding_cache.set(text, embedding)
+
+                # Store in Redis cache
+                if cache:
+                    try:
+                        await cache.set_embedding(
+                            text, settings.embedding_model, embedding
+                        )
+                    except Exception:
+                        pass
+
+        return results
+
+    async def clear_cache(self, redis_only: bool = False):
+        """Clear embedding cache
+
+        Args:
+            redis_only: If True, only clear Redis cache, not in-memory
+        """
+        if not redis_only:
+            await _embedding_cache.clear()
+
+        if self.use_redis_cache:
+            cache = await self._get_cache()
+            if cache:
+                await cache.invalidate_embeddings(settings.embedding_model)
