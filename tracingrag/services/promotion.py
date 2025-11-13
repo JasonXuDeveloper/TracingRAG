@@ -227,9 +227,7 @@ class PromotionService:
             - latest_state: Latest state for topic
         """
         # Get all versions of the topic
-        versions = await self.memory_service.get_topic_history(
-            topic=topic, limit=max_sources
-        )
+        versions = await self.memory_service.get_topic_history(topic=topic, limit=max_sources)
 
         if not versions:
             return {"sources": [], "related_states": [], "latest_state": None}
@@ -374,9 +372,7 @@ Respond with a JSON array of conflicts."""
                         conflict_type=ConflictType(c["conflict_type"]),
                         description=c["description"],
                         severity=c["severity"],
-                        resolution_strategy=ConflictResolutionStrategy(
-                            c["resolution_strategy"]
-                        ),
+                        resolution_strategy=ConflictResolutionStrategy(c["resolution_strategy"]),
                     )
                 )
 
@@ -721,9 +717,7 @@ Guidelines:
         checks = []
 
         # Check 1: Hallucination detection
-        hallucination_check = await self._check_hallucination(
-            synthesized_content, sources
-        )
+        hallucination_check = await self._check_hallucination(synthesized_content, sources)
         checks.append(hallucination_check)
 
         # Check 2: Citation verification
@@ -806,14 +800,11 @@ Respond with JSON."""
                 recommendations=["Quality check failed, manual review recommended"],
             )
 
-    async def _check_citations(
-        self, content: str, sources: list[SynthesisSource]
-    ) -> QualityCheck:
+    async def _check_citations(self, content: str, sources: list[SynthesisSource]) -> QualityCheck:
         """Check citation quality"""
         # Simple heuristic check
         has_references = any(
-            marker in content.lower()
-            for marker in ["source", "according to", "version", "stated"]
+            marker in content.lower() for marker in ["source", "according to", "version", "stated"]
         )
 
         return QualityCheck(
@@ -821,9 +812,7 @@ Respond with JSON."""
             passed=has_references or len(sources) <= 2,
             score=0.8 if has_references else 0.6,
             issues=[] if has_references else ["Content lacks source citations"],
-            recommendations=["Consider adding source references"]
-            if not has_references
-            else [],
+            recommendations=["Consider adding source references"] if not has_references else [],
         )
 
     async def _check_consistency(
@@ -838,9 +827,7 @@ Respond with JSON."""
             check_type=QualityCheckType.CONSISTENCY,
             passed=is_reasonable_length,
             score=0.8 if is_reasonable_length else 0.5,
-            issues=[]
-            if is_reasonable_length
-            else [f"Content length unusual: {word_count} words"],
+            issues=[] if is_reasonable_length else [f"Content length unusual: {word_count} words"],
             recommendations=[],
         )
 
@@ -909,9 +896,7 @@ Respond with JSON."""
         # 3. Carry forward important edges from previous state
         if previous_state:
             # Get edges from previous state
-            prev_edges = await self.graph_service.get_edges_from_state(
-                previous_state.id
-            )
+            prev_edges = await self.graph_service.get_edges_from_state(previous_state.id)
 
             for edge in prev_edges:
                 # Carry forward high-strength edges
@@ -1073,10 +1058,7 @@ Respond with JSON."""
 
         # Build context for LLM
         versions_text = "\n\n".join(
-            [
-                f"Version {v.version} ({v.timestamp}):\n{v.content[:200]}..."
-                for v in versions[:5]
-            ]
+            [f"Version {v.version} ({v.timestamp}):\n{v.content[:200]}..." for v in versions[:5]]
         )
 
         metrics_text = "\n".join([f"- {k}: {v}" for k, v in (metrics or {}).items()])
@@ -1229,9 +1211,7 @@ Respond with JSON."""
         results = []
 
         # Sort by priority
-        sorted_candidates = sorted(
-            candidates, key=lambda c: c.priority, reverse=True
-        )
+        sorted_candidates = sorted(candidates, key=lambda c: c.priority, reverse=True)
 
         # Process in batches (simplified - in production use asyncio.gather with semaphore)
         for candidate in sorted_candidates:

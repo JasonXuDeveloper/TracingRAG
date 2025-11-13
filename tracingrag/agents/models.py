@@ -52,24 +52,16 @@ class AgentState(BaseModel):
     # Query information
     query: str = Field(..., description="User query")
     query_type: str = Field(default="general", description="Detected query type")
-    query_embedding: list[float] | None = Field(
-        default=None, description="Query vector embedding"
-    )
+    query_embedding: list[float] | None = Field(default=None, description="Query vector embedding")
 
     # Planning
     plan: RetrievalPlan | None = Field(default=None, description="Retrieval plan")
     current_step: int = Field(default=0, description="Current step index")
 
     # Execution
-    steps: list[AgentStep] = Field(
-        default_factory=list, description="Executed steps"
-    )
-    retrieved_states: list[Any] = Field(
-        default_factory=list, description="Retrieved memory states"
-    )
-    context: dict[str, Any] = Field(
-        default_factory=dict, description="Accumulated context"
-    )
+    steps: list[AgentStep] = Field(default_factory=list, description="Executed steps")
+    retrieved_states: list[Any] = Field(default_factory=list, description="Retrieved memory states")
+    context: dict[str, Any] = Field(default_factory=dict, description="Accumulated context")
 
     # Results
     answer: str = Field(default="", description="Generated answer")
@@ -77,9 +69,7 @@ class AgentState(BaseModel):
     sources: list[UUID] = Field(default_factory=list, description="Source state IDs")
 
     # Metadata
-    needs_replanning: bool = Field(
-        default=False, description="Whether to replan the strategy"
-    )
+    needs_replanning: bool = Field(default=False, description="Whether to replan the strategy")
     iteration: int = Field(default=0, description="Number of replanning iterations")
     max_iterations: int = Field(default=3, description="Max replanning iterations")
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -91,9 +81,7 @@ class MemorySuggestion(BaseModel):
     suggestion_type: str = Field(
         ..., description="Type: promotion, connection, consolidation, conflict"
     )
-    target_states: list[UUID] = Field(
-        default_factory=list, description="States involved"
-    )
+    target_states: list[UUID] = Field(default_factory=list, description="States involved")
     rationale: str = Field(..., description="Why this suggestion")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
     priority: int = Field(default=5, ge=1, le=10, description="Priority 1-10")

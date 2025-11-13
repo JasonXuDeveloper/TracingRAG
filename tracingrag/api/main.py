@@ -95,9 +95,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         # Track active requests
         from tracingrag.services.metrics import api_active_requests
 
-        api_active_requests.labels(
-            method=request.method, endpoint=request.url.path
-        ).inc()
+        api_active_requests.labels(method=request.method, endpoint=request.url.path).inc()
 
         try:
             response = await call_next(request)
@@ -114,9 +112,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             # Decrease active requests
-            api_active_requests.labels(
-                method=request.method, endpoint=request.url.path
-            ).dec()
+            api_active_requests.labels(method=request.method, endpoint=request.url.path).dec()
 
 
 # Add metrics middleware
@@ -159,7 +155,9 @@ async def health_check():
         "promotion_service": "healthy" if promotion_service else "unavailable",
     }
 
-    overall_status = "healthy" if all(s == "healthy" for s in services_status.values()) else "degraded"
+    overall_status = (
+        "healthy" if all(s == "healthy" for s in services_status.values()) else "degraded"
+    )
 
     return HealthResponse(
         status=overall_status,
@@ -173,9 +171,7 @@ async def get_metrics():
     """Get system metrics"""
     async with get_session() as session:
         # Count total memories
-        total_memories_result = await session.execute(
-            select(func.count(MemoryStateDB.id))
-        )
+        total_memories_result = await session.execute(select(func.count(MemoryStateDB.id)))
         total_memories = total_memories_result.scalar() or 0
 
         # Count unique topics
@@ -189,9 +185,7 @@ async def get_metrics():
 
         # Count promotions (states with "promoted" tag)
         promotions_result = await session.execute(
-            select(func.count(MemoryStateDB.id)).where(
-                MemoryStateDB.tags.contains(["promoted"])
-            )
+            select(func.count(MemoryStateDB.id)).where(MemoryStateDB.tags.contains(["promoted"]))
         )
         total_promotions = promotions_result.scalar() or 0
 

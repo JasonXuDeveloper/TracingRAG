@@ -229,9 +229,7 @@ class RAGService:
 
         return list(source_ids)
 
-    def _calculate_confidence(
-        self, rag_context: RAGContext, llm_response: Any
-    ) -> float:
+    def _calculate_confidence(self, rag_context: RAGContext, llm_response: Any) -> float:
         """
         Calculate confidence score for the response
 
@@ -241,24 +239,16 @@ class RAGService:
         - Token usage vs available budget
         """
         # Base confidence from retrieved states
-        all_states = (
-            rag_context.latest_states
-            + rag_context.summaries
-            + rag_context.detailed_states
-        )
+        all_states = rag_context.latest_states + rag_context.summaries + rag_context.detailed_states
 
         if not all_states:
             return 0.5  # Default if no states
 
         # Average confidence of source states
-        avg_state_confidence = sum(state.confidence for state in all_states) / len(
-            all_states
-        )
+        avg_state_confidence = sum(state.confidence for state in all_states) / len(all_states)
 
         # Coverage factor: how much of available budget was used
-        coverage_factor = min(
-            1.0, rag_context.tokens_used / (rag_context.max_tokens * 0.5)
-        )
+        coverage_factor = min(1.0, rag_context.tokens_used / (rag_context.max_tokens * 0.5))
 
         # Source count factor: more sources generally better
         source_count_factor = min(1.0, len(all_states) / 10)

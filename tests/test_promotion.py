@@ -184,9 +184,7 @@ class TestPromotionService:
             for i in range(3)
         ]
 
-        sources = promotion_service._build_synthesis_sources(
-            sources=states, related_states=[]
-        )
+        sources = promotion_service._build_synthesis_sources(sources=states, related_states=[])
 
         assert len(sources) == 3
         assert sources[0].weight == 1.0  # Most recent
@@ -284,9 +282,7 @@ class TestPromotionService:
         ]
 
         content_without_citations = "This is just some content without any references."
-        check = await promotion_service._check_citations(
-            content_without_citations, sources
-        )
+        check = await promotion_service._check_citations(content_without_citations, sources)
 
         assert check.check_type == QualityCheckType.CITATION
         # Should fail when there are multiple sources but no citations
@@ -559,9 +555,7 @@ class TestAutomaticPromotion:
         policy = PromotionPolicy(mode=PromotionMode.MANUAL)
         service = PromotionService(policy=policy)
 
-        result = await service.evaluate_after_insertion(
-            topic="test_topic", new_state_id=uuid4()
-        )
+        result = await service.evaluate_after_insertion(topic="test_topic", new_state_id=uuid4())
 
         # Should return None in manual mode
         assert result is None

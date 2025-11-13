@@ -404,7 +404,5 @@ class TestRAGIntegration:
         assert builder is not None
 
         # Verify query type detection with rule-based fallback
-        analysis = await builder.query_analyzer.analyze_query(
-            "What is the status?", use_llm=False
-        )
+        analysis = await builder.query_analyzer.analyze_query("What is the status?", use_llm=False)
         assert analysis["query_type"] == QueryType.STATUS

@@ -401,7 +401,9 @@ class RetrievalService:
         """
         async with get_session() as session:
             # Get latest state mappings for all topics
-            topics = list({states[UUID(c["id"])].topic for c in candidates if UUID(c["id"]) in states})
+            topics = list(
+                {states[UUID(c["id"])].topic for c in candidates if UUID(c["id"]) in states}
+            )
 
             result = await session.execute(
                 select(TopicLatestStateDB).where(TopicLatestStateDB.topic.in_(topics))

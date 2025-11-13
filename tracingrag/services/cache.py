@@ -19,9 +19,7 @@ class CacheService:
         Args:
             redis_url: Redis connection URL (default: from REDIS_URL env var)
         """
-        self.redis_url = redis_url or os.getenv(
-            "REDIS_URL", "redis://localhost:6379/0"
-        )
+        self.redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
         self._client: Redis | None = None
 
     async def _get_client(self) -> Redis:
@@ -236,9 +234,7 @@ class CacheService:
         query_hash = hashlib.sha256(combined.encode()).hexdigest()
         return f"query:{query_hash}"
 
-    async def get_query_result(
-        self, query: str, params: dict[str, Any]
-    ) -> dict[str, Any] | None:
+    async def get_query_result(self, query: str, params: dict[str, Any]) -> dict[str, Any] | None:
         """Get cached query result
 
         Args:
@@ -456,9 +452,7 @@ class CacheService:
     # Cache Warming
     # ========================================================================
 
-    async def warm_embeddings(
-        self, texts: list[str], model: str, batch_size: int = 100
-    ) -> int:
+    async def warm_embeddings(self, texts: list[str], model: str, batch_size: int = 100) -> int:
         """Pre-warm embedding cache
 
         Args:

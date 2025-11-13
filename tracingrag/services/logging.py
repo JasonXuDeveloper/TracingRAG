@@ -177,9 +177,7 @@ class AuditLogger:
             **kwargs,
         )
 
-    def log_api_access(
-        self, user: str, endpoint: str, method: str, status: int, **kwargs
-    ):
+    def log_api_access(self, user: str, endpoint: str, method: str, status: int, **kwargs):
         """Log API access"""
         self.logger.info(
             "api_access",
@@ -210,9 +208,7 @@ class AuditLogger:
             **kwargs,
         )
 
-    def log_promotion(
-        self, user: str, topic: str, trigger: str, success: bool, **kwargs
-    ):
+    def log_promotion(self, user: str, topic: str, trigger: str, success: bool, **kwargs):
         """Log memory promotion"""
         self.logger.info(
             "promotion",

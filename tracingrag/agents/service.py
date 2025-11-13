@@ -39,15 +39,11 @@ class AgentService:
         self.query_planner = query_planner or QueryPlannerAgent(
             llm_client=self.llm_client, tools=self.tools
         )
-        self.memory_manager = memory_manager or MemoryManagerAgent(
-            llm_client=self.llm_client
-        )
+        self.memory_manager = memory_manager or MemoryManagerAgent(llm_client=self.llm_client)
         self.answer_model = answer_model
         self.max_answer_tokens = max_answer_tokens
 
-    async def query_with_agent(
-        self, query: str, max_iterations: int = 3
-    ) -> AgentResult:
+    async def query_with_agent(self, query: str, max_iterations: int = 3) -> AgentResult:
         """
         Process query using agents with planning and execution
 
@@ -124,9 +120,7 @@ class AgentService:
 
         return result
 
-    async def _generate_answer(
-        self, state: AgentState
-    ) -> tuple[str, float]:
+    async def _generate_answer(self, state: AgentState) -> tuple[str, float]:
         """
         Generate final answer from retrieved context
 
@@ -216,11 +210,7 @@ Always provide clear, accurate answers grounded in the context."""
         source_factor = min(1.0, source_count / 10)  # Max at 10 sources
 
         # Factor in retrieval scores
-        scores = [
-            item.get("score", 0.0)
-            for item in state.retrieved_states
-            if "score" in item
-        ]
+        scores = [item.get("score", 0.0) for item in state.retrieved_states if "score" in item]
         avg_score = sum(scores) / len(scores) if scores else 0.5
 
         # Factor in planning success (fewer retries = higher confidence)

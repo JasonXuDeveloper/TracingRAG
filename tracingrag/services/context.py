@@ -1,6 +1,5 @@
 """Context building for RAG pipeline"""
 
-
 from tracingrag.core.models.memory import MemoryState
 from tracingrag.core.models.rag import (
     ConsolidationLevel,
@@ -56,9 +55,7 @@ class ContextBuilder:
         # Analyze query if type not provided
         if query_type is None:
             # Use LLM-based analysis for language-agnostic, intelligent detection
-            analysis = await self.query_analyzer.analyze_query(
-                query, use_llm=self.use_llm_analysis
-            )
+            analysis = await self.query_analyzer.analyze_query(query, use_llm=self.use_llm_analysis)
             query_type = analysis["query_type"]
             consolidation_level = analysis["consolidation_level"]
         else:
@@ -87,8 +84,7 @@ class ContextBuilder:
 
         # Update token counts
         latest_tokens = sum(
-            TokenEstimate.estimate(state.content).estimated_tokens
-            for state in latest_states
+            TokenEstimate.estimate(state.content).estimated_tokens for state in latest_states
         )
         context.tokens_used += latest_tokens
         context.tokens_remaining = context.max_tokens - context.tokens_used
@@ -104,8 +100,7 @@ class ContextBuilder:
             context.summaries = summaries
 
             summary_tokens = sum(
-                TokenEstimate.estimate(state.content).estimated_tokens
-                for state in summaries
+                TokenEstimate.estimate(state.content).estimated_tokens for state in summaries
             )
             context.tokens_used += summary_tokens
             context.tokens_remaining = context.max_tokens - context.tokens_used
@@ -121,16 +116,13 @@ class ContextBuilder:
             context.detailed_states = detailed_states
 
             detail_tokens = sum(
-                TokenEstimate.estimate(state.content).estimated_tokens
-                for state in detailed_states
+                TokenEstimate.estimate(state.content).estimated_tokens for state in detailed_states
             )
             context.tokens_used += detail_tokens
             context.tokens_remaining = context.max_tokens - context.tokens_used
 
         # Extract topics
-        all_states = (
-            context.latest_states + context.summaries + context.detailed_states
-        )
+        all_states = context.latest_states + context.summaries + context.detailed_states
         context.topics_considered = list(set(state.topic for state in all_states))
 
         return context
@@ -217,9 +209,7 @@ class ContextBuilder:
 
         return ConsolidationLevel.WEEKLY  # Default: weekly summaries
 
-    def _create_budget(
-        self, max_tokens: int, query_type: QueryType
-    ) -> ContextBudget:
+    def _create_budget(self, max_tokens: int, query_type: QueryType) -> ContextBudget:
         """
         Create token budget based on query type
 

@@ -378,9 +378,7 @@ class MetricsCollector:
     def record_api_request(method: str, endpoint: str, status: int, duration: float):
         """Record API request metrics"""
         api_requests_total.labels(method=method, endpoint=endpoint, status=status).inc()
-        api_request_duration_seconds.labels(method=method, endpoint=endpoint).observe(
-            duration
-        )
+        api_request_duration_seconds.labels(method=method, endpoint=endpoint).observe(duration)
 
     @staticmethod
     def record_query(
@@ -392,16 +390,12 @@ class MetricsCollector:
         """Record query metrics"""
         agent_str = "true" if use_agent else "false"
         query_requests_total.labels(use_agent=agent_str).inc()
-        query_duration_seconds.labels(
-            use_agent=agent_str, phase="total"
-        ).observe(duration)
+        query_duration_seconds.labels(use_agent=agent_str, phase="total").observe(duration)
         query_states_retrieved.observe(states_retrieved)
         query_confidence_score.observe(confidence)
 
     @staticmethod
-    def record_embedding(
-        model: str, duration: float, cache_hit: bool, cache_type: str = "redis"
-    ):
+    def record_embedding(model: str, duration: float, cache_hit: bool, cache_type: str = "redis"):
         """Record embedding metrics"""
         embedding_requests_total.labels(model=model).inc()
         if cache_hit:
@@ -421,9 +415,7 @@ class MetricsCollector:
         """Record LLM request metrics"""
         llm_requests_total.labels(model=model, operation=operation).inc()
         llm_tokens_total.labels(model=model, token_type="prompt").inc(prompt_tokens)
-        llm_tokens_total.labels(model=model, token_type="completion").inc(
-            completion_tokens
-        )
+        llm_tokens_total.labels(model=model, token_type="completion").inc(completion_tokens)
         llm_duration_seconds.labels(model=model, operation=operation).observe(duration)
 
     @staticmethod
@@ -450,9 +442,7 @@ class MetricsCollector:
         promotion_duration_seconds.observe(duration)
 
     @staticmethod
-    def update_cache_stats(
-        cache_type: str, hit_ratio: float, size_bytes: int, keys_count: int
-    ):
+    def update_cache_stats(cache_type: str, hit_ratio: float, size_bytes: int, keys_count: int):
         """Update cache statistics"""
         cache_hit_ratio.labels(cache_type=cache_type).set(hit_ratio)
         cache_size_bytes.set(size_bytes)
@@ -466,9 +456,7 @@ class MetricsCollector:
         consolidation_duration_seconds.labels(level=level).observe(duration)
 
     @staticmethod
-    def update_memory_stats(
-        total_states: int, total_topics: int, avg_versions: float
-    ):
+    def update_memory_stats(total_states: int, total_topics: int, avg_versions: float):
         """Update memory statistics"""
         memory_states_current.set(total_states)
         memory_topics_current.set(total_topics)
@@ -498,9 +486,7 @@ class MetricsCollector:
     @staticmethod
     def record_db_query(database: str, operation: str, duration: float):
         """Record database query"""
-        db_query_duration_seconds.labels(database=database, operation=operation).observe(
-            duration
-        )
+        db_query_duration_seconds.labels(database=database, operation=operation).observe(duration)
 
     @staticmethod
     def record_db_error(database: str, error_type: str):

@@ -48,9 +48,7 @@ class MemoryManagerAgent:
             List of suggestions
         """
         # Get memory history
-        versions = await self.memory_service.get_topic_history(
-            topic=topic, limit=max_versions
-        )
+        versions = await self.memory_service.get_topic_history(topic=topic, limit=max_versions)
 
         if not versions:
             return []
@@ -206,9 +204,7 @@ Respond with your analysis."""
 
         return []
 
-    async def _detect_conflicts(
-        self, topic: str, versions: list[Any]
-    ) -> list[MemorySuggestion]:
+    async def _detect_conflicts(self, topic: str, versions: list[Any]) -> list[MemorySuggestion]:
         """
         Detect potential conflicts in memory versions
 
@@ -261,13 +257,9 @@ Respond with your analysis."""
 
         for v in versions[:5]:  # Limit to 5 most recent
             content_preview = (
-                v.content[:max_length] + "..."
-                if len(v.content) > max_length
-                else v.content
+                v.content[:max_length] + "..." if len(v.content) > max_length else v.content
             )
-            lines.append(
-                f"- v{v.version} ({v.timestamp.date()}): {content_preview}"
-            )
+            lines.append(f"- v{v.version} ({v.timestamp.date()}): {content_preview}")
 
         return "\n".join(lines)
 

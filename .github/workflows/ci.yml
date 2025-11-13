@@ -77,17 +77,14 @@ jobs:
         image: qdrant/qdrant:latest
         ports:
           - 6333:6333
-        options: >-
-          --health-cmd "curl -f http://localhost:6333/health || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
       neo4j:
         image: neo4j:5.25-community
         env:
           NEO4J_AUTH: neo4j/tracingrag123
+          NEO4J_ACCEPT_LICENSE_AGREEMENT: "yes"
         ports:
+          - 7474:7474
           - 7687:7687
 
     steps:
@@ -119,8 +116,63 @@ jobs:
       - name: Install project
         run: poetry install --no-interaction
 
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for PostgreSQL..."
+          until pg_isready -h localhost -p 5432 -U tracingrag; do
+            sleep 1
+          done
+
+          echo "Waiting for Redis..."
+          until redis-cli -h localhost -p 6379 ping; do
+            sleep 1
+          done
+
+          echo "Waiting for Qdrant..."
+          for i in {1..30}; do
+            if curl -s http://localhost:6333/healthz > /dev/null 2>&1; then
+              echo "Qdrant is ready"
+              break
+            fi
+            sleep 2
+          done
+
+          echo "Waiting for Neo4j..."
+          for i in {1..30}; do
+            if timeout 2 bash -c "</dev/tcp/localhost/7687" 2>/dev/null; then
+              echo "Neo4j is ready"
+              sleep 5  # Give Neo4j extra time to fully initialize
+              break
+            fi
+            sleep 2
+          done
+
+          echo "All services are ready!"
+
+      - name: Initialize databases
+        env:
+          NEO4J_URI: bolt://localhost:7687
+          NEO4J_USERNAME: neo4j
+          NEO4J_PASSWORD: tracingrag123
+          QDRANT_URL: http://localhost:6333
+          QDRANT_COLLECTION_NAME: tracingrag_memories
+          DATABASE_URL: postgresql://tracingrag:tracingrag123@localhost:5432/tracingrag
+          OPENROUTER_API_KEY: test_key_for_ci
+        run: |
+          echo "Initializing Neo4j..."
+          poetry run python scripts/init_neo4j.py || echo "Neo4j init warning (may already be initialized)"
+
+          echo "Initializing Qdrant..."
+          poetry run python scripts/init_qdrant.py || echo "Qdrant init warning (may already be initialized)"
+
+          echo "Running database migrations..."
+          poetry run alembic upgrade head
+
+          echo "Database initialization complete!"
+
       - name: Run tests
         env:
+          OPENROUTER_API_KEY: test_key_for_ci
           DATABASE_URL: postgresql://tracingrag:tracingrag123@localhost:5432/tracingrag
           REDIS_URL: redis://localhost:6379/0
           QDRANT_URL: http://localhost:6333

@@ -169,8 +169,7 @@ class GraphService:
         rel_filter = ""
         if relationship_types:
             rel_types = [
-                rt.value if isinstance(rt, RelationshipType) else rt
-                for rt in relationship_types
+                rt.value if isinstance(rt, RelationshipType) else rt for rt in relationship_types
             ]
             rel_filter = f":{':'.join(rel_types)}"
 
@@ -396,15 +395,11 @@ class GraphService:
 
         async with driver.session() as session:
             # Count nodes
-            node_result = await session.run(
-                "MATCH (n:MemoryState) RETURN count(n) as count"
-            )
+            node_result = await session.run("MATCH (n:MemoryState) RETURN count(n) as count")
             node_count = (await node_result.single())["count"]
 
             # Count edges (all relationships)
-            edge_result = await session.run(
-                "MATCH ()-[r]->() RETURN count(r) as count"
-            )
+            edge_result = await session.run("MATCH ()-[r]->() RETURN count(r) as count")
             edge_count = (await edge_result.single())["count"]
 
             # Count active edges
@@ -422,8 +417,7 @@ class GraphService:
                 """
             )
             type_distribution = {
-                record["rel_type"]: record["count"]
-                for record in await type_result.data()
+                record["rel_type"]: record["count"] for record in await type_result.data()
             }
 
             return {
@@ -435,9 +429,7 @@ class GraphService:
                 "relationship_type_distribution": type_distribution,
             }
 
-    async def get_edges_from_state(
-        self, state_id: UUID, active_only: bool = True
-    ) -> list[Edge]:
+    async def get_edges_from_state(self, state_id: UUID, active_only: bool = True) -> list[Edge]:
         """Get all edges originating from a state
 
         Args:

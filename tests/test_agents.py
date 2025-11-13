@@ -170,9 +170,7 @@ class TestQueryPlannerAgent:
         query = "What is the current status?"
 
         # Use rule-based analysis (no LLM call)
-        analysis = await query_planner.query_analyzer.analyze_query(
-            query, use_llm=False
-        )
+        analysis = await query_planner.query_analyzer.analyze_query(query, use_llm=False)
 
         # Check analysis
         assert "query_type" in analysis

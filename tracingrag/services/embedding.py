@@ -288,9 +288,7 @@ class EmbeddingService:
             cache = await self._get_cache()
             if cache:
                 try:
-                    cached = await cache.get_embedding(
-                        text, settings.embedding_model
-                    )
+                    cached = await cache.get_embedding(text, settings.embedding_model)
                     if cached is not None:
                         return cached
                 except Exception:
@@ -315,9 +313,7 @@ class EmbeddingService:
                 cache = await self._get_cache()
                 if cache:
                     try:
-                        await cache.set_embedding(
-                            text, settings.embedding_model, embedding
-                        )
+                        await cache.set_embedding(text, settings.embedding_model, embedding)
                     except Exception:
                         # Silently fail on cache write errors
                         pass
@@ -353,9 +349,7 @@ class EmbeddingService:
             # Try Redis cache first
             if cache:
                 try:
-                    cached = await cache.get_embedding(
-                        text, settings.embedding_model
-                    )
+                    cached = await cache.get_embedding(text, settings.embedding_model)
                 except Exception:
                     pass
 
@@ -372,9 +366,7 @@ class EmbeddingService:
 
         # Generate embeddings for uncached texts
         if uncached_texts:
-            uncached_embeddings = await generate_embeddings_batch(
-                uncached_texts, batch_size
-            )
+            uncached_embeddings = await generate_embeddings_batch(uncached_texts, batch_size)
 
             # Store in caches and fill results
             for idx, text, embedding in zip(
@@ -388,9 +380,7 @@ class EmbeddingService:
                 # Store in Redis cache
                 if cache:
                     try:
-                        await cache.set_embedding(
-                            text, settings.embedding_model, embedding
-                        )
+                        await cache.set_embedding(text, settings.embedding_model, embedding)
                     except Exception:
                         pass
 

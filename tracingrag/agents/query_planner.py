@@ -35,9 +35,7 @@ class QueryPlannerAgent:
         self.tools = tools or AgentTools()
         self.planner_model = planner_model
 
-    async def analyze_and_plan(
-        self, query: str
-    ) -> tuple[dict[str, Any], RetrievalPlan]:
+    async def analyze_and_plan(self, query: str) -> tuple[dict[str, Any], RetrievalPlan]:
         """
         Analyze query and create retrieval plan
 
@@ -55,9 +53,7 @@ class QueryPlannerAgent:
 
         return analysis, plan
 
-    async def _generate_plan(
-        self, query: str, analysis: dict[str, Any]
-    ) -> RetrievalPlan:
+    async def _generate_plan(self, query: str, analysis: dict[str, Any]) -> RetrievalPlan:
         """
         Generate retrieval plan using LLM
 
@@ -188,9 +184,7 @@ Create a step-by-step retrieval plan."""
                 estimated_complexity=1,
             )
 
-    async def execute_plan(
-        self, plan: RetrievalPlan
-    ) -> tuple[list[AgentStep], dict[str, Any]]:
+    async def execute_plan(self, plan: RetrievalPlan) -> tuple[list[AgentStep], dict[str, Any]]:
         """
         Execute retrieval plan
 

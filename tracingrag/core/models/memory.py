@@ -53,9 +53,7 @@ class MemoryState(BaseModel):
     version: int = Field(ge=1, description="Version number in the trace")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     embedding: list[float] | None = Field(default=None, description="Vector representation")
-    parent_state_id: UUID | None = Field(
-        default=None, description="Previous version in the trace"
-    )
+    parent_state_id: UUID | None = Field(default=None, description="Previous version in the trace")
     metadata: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
     confidence: float = Field(
@@ -77,9 +75,7 @@ class MemoryState(BaseModel):
         default=None, description="State IDs this was consolidated from"
     )
     is_consolidated: bool = Field(default=False, description="Is this a consolidated summary?")
-    consolidation_level: int = Field(
-        default=0, description="0=raw, 1=daily, 2=weekly, 3=monthly"
-    )
+    consolidation_level: int = Field(default=0, description="0=raw, 1=daily, 2=weekly, 3=monthly")
 
     # Diff-based storage for efficiency
     diff_from_parent: str | None = Field(
@@ -212,9 +208,7 @@ class QueryContext(BaseModel):
         default=None, description="Filter by time range"
     )
     limit: int = Field(default=10, ge=1, le=100, description="Max results")
-    min_relevance: float = Field(
-        default=0.7, ge=0.0, le=1.0, description="Minimum relevance score"
-    )
+    min_relevance: float = Field(default=0.7, ge=0.0, le=1.0, description="Minimum relevance score")
     tags: list[str] | None = Field(default=None, description="Filter by tags")
 
 
@@ -226,9 +220,7 @@ class RetrievalResult(BaseModel):
     related_states: list["MemoryState"] = Field(default_factory=list)
     historical_context: list["MemoryState"] = Field(default_factory=list)
     trace_id: UUID | None = None
-    reasoning: str | None = Field(
-        default=None, description="Why this result was retrieved"
-    )
+    reasoning: str | None = Field(default=None, description="Why this result was retrieved")
 
 
 class PromotionRequest(BaseModel):

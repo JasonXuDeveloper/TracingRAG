@@ -172,7 +172,9 @@ async def main():
             for candidate in candidates:
                 print(f"      - {candidate.topic}")
                 print(f"        Priority: {candidate.priority_score:.1f}")
-                print(f"        Versions since consolidation: {candidate.versions_since_consolidation}")
+                print(
+                    f"        Versions since consolidation: {candidate.versions_since_consolidation}"
+                )
                 print()
         else:
             print("   No promotion candidates found yet (not enough data)")

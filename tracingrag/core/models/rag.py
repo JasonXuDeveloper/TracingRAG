@@ -37,9 +37,7 @@ class RAGContext(BaseModel):
     """Complete context for RAG pipeline"""
 
     query: str = Field(..., description="Original user query")
-    query_type: QueryType = Field(
-        default=QueryType.GENERAL, description="Detected query type"
-    )
+    query_type: QueryType = Field(default=QueryType.GENERAL, description="Detected query type")
     query_embedding: list[float] | None = Field(
         default=None, description="Vector embedding of query"
     )
@@ -49,9 +47,7 @@ class RAGContext(BaseModel):
         default_factory=list,
         description="Latest states for relevant topics (always included)",
     )
-    summaries: list[MemoryState] = Field(
-        default_factory=list, description="Consolidated summaries"
-    )
+    summaries: list[MemoryState] = Field(default_factory=list, description="Consolidated summaries")
     detailed_states: list[MemoryState] = Field(
         default_factory=list, description="Detailed states from selective drill-down"
     )
@@ -113,17 +109,13 @@ class RAGResponse(BaseModel):
     sources: list[UUID] = Field(
         default_factory=list, description="Memory state IDs used as sources"
     )
-    confidence: float = Field(
-        default=1.0, ge=0.0, le=1.0, description="Confidence in answer"
-    )
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence in answer")
 
     # Context information
     context_used: dict[str, Any] = Field(
         default_factory=dict, description="Summary of context used"
     )
-    query_type: QueryType = Field(
-        default=QueryType.GENERAL, description="Detected query type"
-    )
+    query_type: QueryType = Field(default=QueryType.GENERAL, description="Detected query type")
 
     # Performance metrics
     retrieval_time_ms: float = Field(default=0.0, description="Time for retrieval")
@@ -141,22 +133,14 @@ class ContextBudget(BaseModel):
     """Budget allocation for context window"""
 
     max_tokens: int = Field(..., description="Total available tokens")
-    reserved_buffer: int = Field(
-        default=10000, description="Reserve for LLM reasoning"
-    )
-    latest_states_budget: int = Field(
-        default=20000, description="Budget for latest states"
-    )
+    reserved_buffer: int = Field(default=10000, description="Reserve for LLM reasoning")
+    latest_states_budget: int = Field(default=20000, description="Budget for latest states")
     summaries_budget: int = Field(default=30000, description="Budget for summaries")
-    details_budget: int = Field(
-        default=0, description="Budget for detailed states (computed)"
-    )
+    details_budget: int = Field(default=0, description="Budget for detailed states (computed)")
 
     def compute_details_budget(self) -> int:
         """Compute remaining budget for details"""
-        allocated = (
-            self.reserved_buffer + self.latest_states_budget + self.summaries_budget
-        )
+        allocated = self.reserved_buffer + self.latest_states_budget + self.summaries_budget
         remaining = self.max_tokens - allocated
         self.details_budget = max(0, remaining)
         return self.details_budget
