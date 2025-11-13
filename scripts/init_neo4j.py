@@ -45,7 +45,7 @@ async def main():
 
         # Verify by getting stats
         stats = await client.get_graph_stats()
-        print(f"\nCurrent stats:")
+        print("\nCurrent stats:")
         print(f"   - Nodes: {stats.node_count}")
         print(f"   - Edges: {stats.edge_count}")
 

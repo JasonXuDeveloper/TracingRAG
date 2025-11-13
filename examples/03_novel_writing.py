@@ -44,7 +44,7 @@ async def novel_writing_example():
         print("🌍 Phase 1: World-Building...")
         print()
 
-        world_setting = await client.create_memory(
+        await client.create_memory(
             topic="setting_starship_nova",
             content=(
                 "The Starship Nova is humanity's last colony ship, carrying 10,000 "
@@ -56,7 +56,7 @@ async def novel_writing_example():
             tags=["worldbuilding", "setting", "spaceship"],
             confidence=1.0,
         )
-        print(f"   ✅ Created setting: Starship Nova")
+        print("   ✅ Created setting: Starship Nova")
 
         factions_v1 = await client.create_memory(
             topic="political_factions",
@@ -69,7 +69,7 @@ async def novel_writing_example():
             tags=["worldbuilding", "politics", "factions"],
             confidence=0.9,
         )
-        print(f"   ✅ Created political landscape")
+        print("   ✅ Created political landscape")
         print()
 
         # ====================================================================
@@ -92,10 +92,10 @@ async def novel_writing_example():
             confidence=1.0,
             custom_metadata={"role": "protagonist", "age": 28, "sector": "engineering"},
         )
-        print(f"   ✅ Created protagonist: Sarah Chen (Engineer)")
+        print("   ✅ Created protagonist: Sarah Chen (Engineer)")
 
         # Antagonist
-        char_marcus_v1 = await client.create_memory(
+        await client.create_memory(
             topic="character_marcus_hall",
             content=(
                 "Marcus Hall, age 45, Council Chairman. Former military officer. "
@@ -107,10 +107,10 @@ async def novel_writing_example():
             confidence=1.0,
             custom_metadata={"role": "antagonist", "age": 45, "sector": "command"},
         )
-        print(f"   ✅ Created antagonist: Marcus Hall (Council Chair)")
+        print("   ✅ Created antagonist: Marcus Hall (Council Chair)")
 
         # Supporting Character
-        char_david_v1 = await client.create_memory(
+        await client.create_memory(
             topic="character_david_wright",
             content=(
                 "David Wright, age 30, medical officer and Sarah's childhood friend. "
@@ -121,7 +121,7 @@ async def novel_writing_example():
             confidence=1.0,
             custom_metadata={"role": "supporting", "age": 30, "sector": "medical"},
         )
-        print(f"   ✅ Created supporting: David Wright (Medical Officer)")
+        print("   ✅ Created supporting: David Wright (Medical Officer)")
         print()
 
         # ====================================================================
@@ -130,7 +130,7 @@ async def novel_writing_example():
         print("📝 Phase 3: Writing early chapters...")
         print()
 
-        plot_ch1_5 = await client.create_memory(
+        await client.create_memory(
             topic="plot_discovery_arc",
             content=(
                 "Chapters 1-5: Sarah discovers failing life support systems during "
@@ -141,7 +141,7 @@ async def novel_writing_example():
             tags=["plot", "chapters_1_5", "discovery"],
             confidence=0.95,
         )
-        print(f"   ✅ Plotted chapters 1-5: Discovery arc")
+        print("   ✅ Plotted chapters 1-5: Discovery arc")
 
         # ====================================================================
         # Character Development: Sarah's Evolution
@@ -150,7 +150,7 @@ async def novel_writing_example():
         print()
 
         # Sarah learns a shocking truth and her character evolves
-        char_sarah_v2 = await client.create_memory(
+        await client.create_memory(
             topic="character_sarah_chen",
             content=(
                 "Sarah Chen (Chapter 8): After confronting Marcus, Sarah learned the "
@@ -171,7 +171,7 @@ async def novel_writing_example():
                 "arc": "rebellion_leader",
             },
         )
-        print(f"   ✅ Sarah's character evolved (Chapter 8): Now a rebellion leader")
+        print("   ✅ Sarah's character evolved (Chapter 8): Now a rebellion leader")
 
         # ====================================================================
         # Plot Twist: Factions Shift
@@ -179,7 +179,7 @@ async def novel_writing_example():
         print("🔀 Phase 5: Plot twist...")
         print()
 
-        factions_v2 = await client.create_memory(
+        await client.create_memory(
             topic="political_factions",
             content=(
                 "Factions after Chapter 10: "
@@ -194,7 +194,7 @@ async def novel_writing_example():
             tags=["worldbuilding", "politics", "factions", "updated"],
             confidence=0.88,
         )
-        print(f"   ✅ Political landscape evolved with new faction")
+        print("   ✅ Political landscape evolved with new faction")
 
         # ====================================================================
         # Continuity Checks: Query Story Elements
@@ -234,7 +234,7 @@ async def novel_writing_example():
         print("📅 Phase 7: Planning future chapters...")
         print()
 
-        future_plot = await client.create_memory(
+        await client.create_memory(
             topic="plot_resolution_plan",
             content=(
                 "Planned Chapters 15-20 (Resolution): "
@@ -248,7 +248,7 @@ async def novel_writing_example():
             confidence=0.75,
             custom_metadata={"status": "planned", "needs_revision": False},
         )
-        print(f"   ✅ Planned ending: Democratic vote on first contact")
+        print("   ✅ Planned ending: Democratic vote on first contact")
 
         # ====================================================================
         # View Character Evolution
@@ -293,7 +293,7 @@ async def novel_writing_example():
             topic="plot_discovery_arc",
             reason="Completing discovery arc - synthesizing chapters 1-5",
         )
-        print(f"   ✅ Created synthesized summary:")
+        print("   ✅ Created synthesized summary:")
         print(f"   {summary_result.new_state.content[:200]}...")
         if summary_result.synthesis_sources:
             print(f"   📝 Synthesized from {len(summary_result.synthesis_sources)} sources")

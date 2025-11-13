@@ -151,7 +151,6 @@ async def main():
     print("=" * 60)
 
     required_services = ["PostgreSQL", "Neo4j", "Qdrant", "LLM", "Embedding"]
-    optional_services = ["Redis"]
 
     all_required_ok = all(results.get(s, False) for s in required_services)
     redis_ok = results.get("Redis")

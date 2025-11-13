@@ -45,7 +45,7 @@ async def simulate_npc_interactions():
         print()
 
         # NPC 1: Merchant Elena
-        elena_intro = await client.create_memory(
+        _elena_intro = await client.create_memory(
             topic="npc_elena_merchant",
             content=(
                 "Elena is a kind merchant who runs the general store in Rivertown. "
@@ -57,10 +57,10 @@ async def simulate_npc_interactions():
             confidence=1.0,
             custom_metadata={"npc_type": "merchant", "location": "rivertown_store"},
         )
-        print(f"   ✅ Created NPC: Elena (Merchant)")
+        print("   ✅ Created NPC: Elena (Merchant)")
 
         # NPC 2: Guard Captain Marcus
-        marcus_intro = await client.create_memory(
+        _marcus_intro = await client.create_memory(
             topic="npc_marcus_guard",
             content=(
                 "Marcus is the stern but fair captain of the town guard. "
@@ -71,7 +71,7 @@ async def simulate_npc_interactions():
             confidence=1.0,
             custom_metadata={"npc_type": "guard_captain", "location": "guard_barracks"},
         )
-        print(f"   ✅ Created NPC: Marcus (Guard Captain)\n")
+        print("   ✅ Created NPC: Marcus (Guard Captain)\n")
 
         # ====================================================================
         # Day 1: First Interactions
@@ -92,7 +92,7 @@ async def simulate_npc_interactions():
             confidence=0.9,
             custom_metadata={"day": 1, "player_action": "friendly_purchase"},
         )
-        print(f"   💬 Elena meets player (positive interaction)")
+        print("   💬 Elena meets player (positive interaction)")
 
         # Player meets Marcus
         marcus_day1 = await client.create_memory(
@@ -107,7 +107,7 @@ async def simulate_npc_interactions():
             confidence=0.85,
             custom_metadata={"day": 1, "player_action": "respectful_compliance"},
         )
-        print(f"   💬 Marcus meets player (suspicious but neutral)\n")
+        print("   💬 Marcus meets player (suspicious but neutral)\n")
 
         # ====================================================================
         # Day 3: Player helps town
@@ -128,7 +128,7 @@ async def simulate_npc_interactions():
             confidence=0.95,
             custom_metadata={"day": 3, "player_action": "heroic_defense"},
         )
-        print(f"   ⚔️  Player helps defend town - Marcus is impressed")
+        print("   ⚔️  Player helps defend town - Marcus is impressed")
 
         elena_day3 = await client.create_memory(
             topic="elena_player_relationship",
@@ -143,7 +143,7 @@ async def simulate_npc_interactions():
             confidence=0.92,
             custom_metadata={"day": 3, "player_action": "protective_concern"},
         )
-        print(f"   💝 Elena grows fond of player\n")
+        print("   💝 Elena grows fond of player\n")
 
         # ====================================================================
         # Day 7: Quest Decision
@@ -151,7 +151,7 @@ async def simulate_npc_interactions():
         print("📅 Day 7: Player faces a moral choice...")
         print()
 
-        quest_memory = await client.create_memory(
+        _quest_memory = await client.create_memory(
             topic="player_moral_choice",
             content=(
                 "Player discovered that a local noble has been embezzling town funds meant "
@@ -163,10 +163,10 @@ async def simulate_npc_interactions():
             confidence=1.0,
             custom_metadata={"day": 7, "choice": "honest_reporting"},
         )
-        print(f"   ⚖️  Player chooses integrity over personal gain")
+        print("   ⚖️  Player chooses integrity over personal gain")
 
         # Update relationships
-        marcus_day7 = await client.create_memory(
+        _marcus_day7 = await client.create_memory(
             topic="marcus_player_relationship",
             content=(
                 "Marcus deeply respects Aria now. Aria risked angering a powerful noble to "
@@ -178,9 +178,9 @@ async def simulate_npc_interactions():
             confidence=0.98,
             custom_metadata={"day": 7, "relationship_level": "friend"},
         )
-        print(f"   🤝 Marcus now considers player a friend")
+        print("   🤝 Marcus now considers player a friend")
 
-        elena_day7 = await client.create_memory(
+        _elena_day7 = await client.create_memory(
             topic="elena_player_relationship",
             content=(
                 "Elena is proud of Aria's choice. She confided that her husband used to stand "
@@ -193,7 +193,7 @@ async def simulate_npc_interactions():
             confidence=0.96,
             custom_metadata={"day": 7, "relationship_level": "family_like"},
         )
-        print(f"   👪 Elena treats player like family\n")
+        print("   👪 Elena treats player like family\n")
 
         # ====================================================================
         # Query NPC Memories

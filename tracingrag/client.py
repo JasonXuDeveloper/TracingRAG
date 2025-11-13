@@ -1,12 +1,10 @@
 """Python client for TracingRAG REST API"""
 
 from datetime import datetime
-from typing import Any, Optional
-from urllib.parse import urljoin
+from typing import Any
 
 import httpx
 from pydantic import BaseModel
-
 
 # ============================================================================
 # Response Models
@@ -21,7 +19,7 @@ class MemoryState(BaseModel):
     content: str
     version: int
     timestamp: datetime
-    parent_state_id: Optional[str] = None
+    parent_state_id: str | None = None
     tags: list[str] = []
     confidence: float = 1.0
     custom_metadata: dict[str, Any] = {}
@@ -43,7 +41,7 @@ class QueryResponse(BaseModel):
     """Query response model"""
 
     query: str
-    answer: Optional[str] = None
+    answer: str | None = None
     retrieved_states: list[QueryResult] = []
     confidence: float = 0.0
     reasoning_steps: list[str] = []
@@ -92,7 +90,7 @@ class TracingRAGClient:
     def __init__(
         self,
         base_url: str = "http://localhost:8000",
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout: float = 30.0,
     ):
         """Initialize TracingRAG client
@@ -168,10 +166,10 @@ class TracingRAGClient:
         self,
         topic: str,
         content: str,
-        parent_state_id: Optional[str] = None,
-        tags: Optional[list[str]] = None,
+        parent_state_id: str | None = None,
+        tags: list[str] | None = None,
         confidence: float = 1.0,
-        custom_metadata: Optional[dict] = None,
+        custom_metadata: dict | None = None,
     ) -> MemoryState:
         """Create a new memory state
 
@@ -226,7 +224,7 @@ class TracingRAGClient:
 
     def list_memories(
         self,
-        topic: Optional[str] = None,
+        topic: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[MemoryState]:
@@ -332,7 +330,7 @@ class TracingRAGClient:
     def promote_memory(
         self,
         topic: str,
-        reason: Optional[str] = None,
+        reason: str | None = None,
         mode: str = "automatic",
     ) -> PromotionResult:
         """Promote a memory to a new state
@@ -412,7 +410,7 @@ class AsyncTracingRAGClient:
     def __init__(
         self,
         base_url: str = "http://localhost:8000",
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout: float = 30.0,
     ):
         """Initialize async TracingRAG client
@@ -464,10 +462,10 @@ class AsyncTracingRAGClient:
         self,
         topic: str,
         content: str,
-        parent_state_id: Optional[str] = None,
-        tags: Optional[list[str]] = None,
+        parent_state_id: str | None = None,
+        tags: list[str] | None = None,
         confidence: float = 1.0,
-        custom_metadata: Optional[dict] = None,
+        custom_metadata: dict | None = None,
     ) -> MemoryState:
         """Create a new memory state"""
         data = {
@@ -491,7 +489,7 @@ class AsyncTracingRAGClient:
 
     async def list_memories(
         self,
-        topic: Optional[str] = None,
+        topic: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[MemoryState]:
@@ -536,7 +534,7 @@ class AsyncTracingRAGClient:
     async def promote_memory(
         self,
         topic: str,
-        reason: Optional[str] = None,
+        reason: str | None = None,
         mode: str = "automatic",
     ) -> PromotionResult:
         """Promote a memory to a new state"""

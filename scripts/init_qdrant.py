@@ -52,7 +52,7 @@ async def main():
 
         # Verify collection exists
         info = await client.get_collection_info()
-        print(f"\nCollection status:")
+        print("\nCollection status:")
         print(f"   - Points count: {info.get('points_count', 0)}")
         print(f"   - Status: {info.get('status', 'unknown')}")
 
