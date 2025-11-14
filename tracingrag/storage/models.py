@@ -5,6 +5,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    ARRAY,
     Boolean,
     Column,
     DateTime,
@@ -16,6 +17,8 @@ from sqlalchemy import (
     Text,
     TypeDecorator,
 )
+from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import relationship
 
@@ -31,24 +34,101 @@ class UUIDEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-# Type compatibility layer for SQLite
-class JSONEncodedList(TypeDecorator):
-    """Stores Python list as JSON string for SQLite compatibility"""
+# Type compatibility layer for cross-database support
+class FloatArrayType(TypeDecorator):
+    """Stores Python list of floats as JSON string for SQLite, native ARRAY for PostgreSQL"""
 
     impl = Text
     cache_ok = True
 
+    def load_dialect_impl(self, dialect):
+        """Use native ARRAY type for PostgreSQL, Text for others"""
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(PG_ARRAY(Float))
+        else:
+            return dialect.type_descriptor(Text())
+
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
-        # Use custom encoder to handle UUIDs
+        # PostgreSQL handles arrays natively
+        if dialect.name == "postgresql":
+            return value
+        # For SQLite/others, encode as JSON string
+        return json.dumps(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        # PostgreSQL returns arrays directly
+        if dialect.name == "postgresql":
+            return value
+        # For SQLite/others, decode from JSON string
+        return json.loads(value)
+
+
+class StringArrayType(TypeDecorator):
+    """Stores Python list of strings as JSON string for SQLite, native ARRAY for PostgreSQL"""
+
+    impl = Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        """Use native ARRAY type for PostgreSQL, Text for others"""
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(PG_ARRAY(String))
+        else:
+            return dialect.type_descriptor(Text())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        # PostgreSQL handles arrays natively
+        if dialect.name == "postgresql":
+            return value
+        # For SQLite/others, encode as JSON string
+        return json.dumps(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        # PostgreSQL returns arrays directly
+        if dialect.name == "postgresql":
+            return value
+        # For SQLite/others, decode from JSON string
+        return json.loads(value)
+
+
+class UUIDArrayType(TypeDecorator):
+    """Stores Python list of UUIDs as JSON string for SQLite, native ARRAY for PostgreSQL"""
+
+    impl = Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        """Use native ARRAY type for PostgreSQL, Text for others"""
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(PG_ARRAY(PGUUID(as_uuid=True)))
+        else:
+            return dialect.type_descriptor(Text())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        # PostgreSQL handles UUID arrays natively
+        if dialect.name == "postgresql":
+            return value
+        # For SQLite/others, encode as JSON string with UUID conversion
         return json.dumps(value, cls=UUIDEncoder)
 
     def process_result_value(self, value, dialect):
         if value is None:
             return None
+        # PostgreSQL returns arrays directly
+        if dialect.name == "postgresql":
+            return value
+        # For SQLite/others, decode from JSON string and convert to UUIDs
         data = json.loads(value)
-        # Convert string UUIDs back to UUID objects if they look like UUIDs
         if isinstance(data, list):
             result = []
             for item in data:
@@ -64,19 +144,34 @@ class JSONEncodedList(TypeDecorator):
 
 
 class JSONEncodedDict(TypeDecorator):
-    """Stores Python dict as JSON string for SQLite compatibility"""
+    """Stores Python dict as JSON string for SQLite, native JSONB for PostgreSQL"""
 
     impl = Text
     cache_ok = True
 
+    def load_dialect_impl(self, dialect):
+        """Use native JSONB type for PostgreSQL, Text for others"""
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(JSONB())
+        else:
+            return dialect.type_descriptor(Text())
+
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
+        # PostgreSQL handles JSONB natively
+        if dialect.name == "postgresql":
+            return value
+        # For SQLite/others, encode as JSON string
         return json.dumps(value)
 
     def process_result_value(self, value, dialect):
         if value is None:
             return None
+        # PostgreSQL returns dicts directly
+        if dialect.name == "postgresql":
+            return value
+        # For SQLite/others, decode from JSON string
         return json.loads(value)
 
 
@@ -92,16 +187,16 @@ class MemoryStateDB(Base):
     version = Column(Integer, nullable=False, default=1)
     timestamp = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
-    # Embedding (using JSONEncodedList for SQLite compatibility)
-    embedding = Column(JSONEncodedList, nullable=True)
+    # Embedding (float array - ARRAY(Float) for PostgreSQL, JSON for SQLite)
+    embedding = Column(FloatArrayType, nullable=True)
 
     # Trace relationship
     parent_state_id = Column(PGUUID(as_uuid=True), ForeignKey("memory_states.id"), nullable=True)
     parent = relationship("MemoryStateDB", remote_side=[id], backref="children")
 
-    # Metadata (using JSONEncodedDict for SQLite compatibility)
+    # Metadata (JSONB for PostgreSQL, JSON string for SQLite)
     custom_metadata = Column("metadata", JSONEncodedDict, nullable=False, default=dict)
-    tags = Column(JSONEncodedList, nullable=False, default=list)
+    tags = Column(StringArrayType, nullable=False, default=list)
     confidence = Column(Float, nullable=False, default=1.0)
     source = Column(String(255), nullable=True)
     created_by = Column(String(255), nullable=True)
@@ -112,8 +207,8 @@ class MemoryStateDB(Base):
     importance_score = Column(Float, nullable=False, default=0.5)
     storage_tier = Column(String(50), nullable=False, default="active")
 
-    # Consolidation tracking (using JSONEncodedList for SQLite compatibility)
-    consolidated_from = Column(JSONEncodedList, nullable=True)
+    # Consolidation tracking (UUID array - ARRAY(UUID) for PostgreSQL, JSON for SQLite)
+    consolidated_from = Column(UUIDArrayType, nullable=True)
     is_consolidated = Column(Boolean, nullable=False, default=False)
     consolidation_level = Column(Integer, nullable=False, default=0)
 
@@ -142,11 +237,11 @@ class TraceDB(Base):
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
     topic = Column(String(500), nullable=False, unique=True, index=True)
-    state_ids = Column(JSONEncodedList, nullable=False, default=list)
+    state_ids = Column(UUIDArrayType, nullable=False, default=list)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     custom_metadata = Column("metadata", JSONEncodedDict, nullable=False, default=dict)
-    tags = Column(JSONEncodedList, nullable=False, default=list)
+    tags = Column(StringArrayType, nullable=False, default=list)
     is_active = Column(Boolean, nullable=False, default=True)
 
     __table_args__ = (
