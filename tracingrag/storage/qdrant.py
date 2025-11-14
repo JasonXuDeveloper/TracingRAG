@@ -63,32 +63,37 @@ async def init_qdrant_collection(
             ),
         )
 
-        # Create payload indexes for filtering
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="topic",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="storage_tier",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="entity_type",
-            field_schema=models.PayloadSchemaType.KEYWORD,
-        )
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="is_consolidated",
-            field_schema=models.PayloadSchemaType.BOOL,
-        )
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="consolidation_level",
-            field_schema=models.PayloadSchemaType.INTEGER,
-        )
+    # Create payload indexes (idempotent - will not fail if already exists)
+    # This ensures indexes are created for both new and existing collections
+    _ensure_payload_indexes(client, collection_name)
+
+
+def _ensure_payload_indexes(client: QdrantClient, collection_name: str) -> None:
+    """Ensure all required payload indexes exist (idempotent)
+
+    Args:
+        client: Qdrant client
+        collection_name: Collection name
+    """
+    indexes_to_create = [
+        ("topic", models.PayloadSchemaType.KEYWORD),
+        ("storage_tier", models.PayloadSchemaType.KEYWORD),
+        ("entity_type", models.PayloadSchemaType.KEYWORD),
+        ("is_consolidated", models.PayloadSchemaType.BOOL),
+        ("consolidation_level", models.PayloadSchemaType.INTEGER),
+        ("is_latest", models.PayloadSchemaType.BOOL),
+    ]
+
+    for field_name, field_schema in indexes_to_create:
+        try:
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name=field_name,
+                field_schema=field_schema,
+            )
+        except Exception:
+            # Index already exists, ignore
+            pass
 
 
 async def upsert_embedding(
@@ -107,7 +112,7 @@ async def upsert_embedding(
     """
     client = get_qdrant_client()
 
-    # Auto-create collection if it doesn't exist
+    # Auto-create collection and ensure indexes exist
     try:
         collections = client.get_collections().collections
         collection_exists = any(col.name == collection_name for col in collections)
@@ -118,6 +123,9 @@ async def upsert_embedding(
                 collection_name=collection_name,
                 vector_size=vector_size,
             )
+        else:
+            # Collection exists, ensure indexes are up to date
+            _ensure_payload_indexes(client, collection_name)
     except Exception:
         # If collection check fails, try to create it
         vector_size = len(embedding)
@@ -143,6 +151,7 @@ async def search_similar(
     limit: int = 10,
     score_threshold: float | None = None,
     filter_conditions: dict[str, Any] | None = None,
+    latest_only: bool = False,
     collection_name: str = "memory_states",
 ) -> list[dict[str, Any]]:
     """Search for similar vectors in Qdrant
@@ -152,6 +161,7 @@ async def search_similar(
         limit: Maximum number of results to return
         score_threshold: Minimum similarity score (0-1 for cosine)
         filter_conditions: Qdrant filter conditions for metadata filtering
+        latest_only: If True, only return latest version per topic (filters by is_latest=True)
         collection_name: Name of the collection to search
 
     Returns:
@@ -161,15 +171,28 @@ async def search_similar(
 
     # Build filter from conditions
     query_filter = None
-    if filter_conditions:
+    if filter_conditions or latest_only:
         must_conditions = []
-        for field, value in filter_conditions.items():
+
+        # Add latest_only filter
+        if latest_only:
             must_conditions.append(
                 models.FieldCondition(
-                    key=field,
-                    match=models.MatchValue(value=value),
+                    key="is_latest",
+                    match=models.MatchValue(value=True),
                 )
             )
+
+        # Add custom filter conditions
+        if filter_conditions:
+            for field, value in filter_conditions.items():
+                must_conditions.append(
+                    models.FieldCondition(
+                        key=field,
+                        match=models.MatchValue(value=value),
+                    )
+                )
+
         query_filter = models.Filter(must=must_conditions)
 
     # Perform search

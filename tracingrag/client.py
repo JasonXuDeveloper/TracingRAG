@@ -1,10 +1,15 @@
 """Python client for TracingRAG REST API"""
 
+
 from datetime import datetime
 from typing import Any
 
 import httpx
 from pydantic import BaseModel
+
+from tracingrag.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # ============================================================================
 # Response Models
@@ -451,7 +456,10 @@ class TracingRAGClient:
 
         response = self._client.get("/api/v1/promotion-candidates", params=params)
         response.raise_for_status()
-        return [PromotionCandidate(**c) for c in response.json()]
+        data = response.json()
+        # Handle both {"candidates": [...]} and direct [...] formats
+        candidates = data.get("candidates", data) if isinstance(data, dict) else data
+        return [PromotionCandidate(**c) for c in candidates]
 
 
 # ============================================================================
@@ -676,4 +684,7 @@ class AsyncTracingRAGClient:
 
         response = await self._client.get("/api/v1/promotion-candidates", params=params)
         response.raise_for_status()
-        return [PromotionCandidate(**c) for c in response.json()]
+        data = response.json()
+        # Handle both {"candidates": [...]} and direct [...] formats
+        candidates = data.get("candidates", data) if isinstance(data, dict) else data
+        return [PromotionCandidate(**c) for c in candidates]

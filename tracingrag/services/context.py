@@ -1,5 +1,6 @@
 """Context building for RAG pipeline"""
 
+
 from tracingrag.core.models.memory import MemoryState
 from tracingrag.core.models.rag import (
     ConsolidationLevel,
@@ -73,9 +74,7 @@ class ContextBuilder:
             # Use provided query type
             consolidation_level = self._determine_consolidation_level_rules(query_type)
 
-        print(
-            f"[ContextBuilder] Building context for query_type={query_type.value}, max_tokens={max_tokens}"
-        )
+        logger.info(f"Building context for query_type={query_type.value}, max_tokens={max_tokens}")
 
         # Initialize context
         context = RAGContext(
@@ -88,9 +87,7 @@ class ContextBuilder:
 
         # Create budget allocation
         budget = self._create_budget(max_tokens, query_type)
-        print(
-            f"[ContextBuilder] Budget: latest={budget.latest_states_budget}, summaries={budget.summaries_budget}, buffer={budget.reserved_buffer}"
-        )
+        logger.info(f"Budget: latest={budget.latest_states_budget}, summaries={budget.summaries_budget}, buffer={budget.reserved_buffer}")
 
         # Phase 1: Get latest states (always included)
         latest_states = await self._get_latest_states(
@@ -124,11 +121,9 @@ class ContextBuilder:
             context.tokens_remaining = context.max_tokens - context.tokens_used
 
         # Phase 3: Selective drill-down (if budget allows)
-        print(
-            f"[ContextBuilder] Phase 3 check: tokens_remaining={context.tokens_remaining}, buffer={budget.reserved_buffer}"
-        )
+        logger.info(f"Phase 3 check: tokens_remaining={context.tokens_remaining}, buffer={budget.reserved_buffer}")
         if context.tokens_remaining > budget.reserved_buffer:
-            print("[ContextBuilder] Entering Phase 3: selective drill-down with graph traversal")
+            logger.info("Entering Phase 3: selective drill-down with graph traversal")
             detailed_states = await self._get_detailed_states(
                 query=query,
                 query_embedding=query_embedding,
@@ -136,9 +131,7 @@ class ContextBuilder:
                 max_tokens=context.tokens_remaining - budget.reserved_buffer,
             )
             context.detailed_states = detailed_states
-            print(
-                f"[ContextBuilder] Phase 3 completed: retrieved {len(detailed_states)} detailed states"
-            )
+            logger.info(f"Phase 3 completed: retrieved {len(detailed_states)} detailed states")
 
             detail_tokens = sum(
                 TokenEstimate.estimate(state.content).estimated_tokens for state in detailed_states
@@ -146,24 +139,19 @@ class ContextBuilder:
             context.tokens_used += detail_tokens
             context.tokens_remaining = context.max_tokens - context.tokens_used
         else:
-            print("[ContextBuilder] Skipping Phase 3: insufficient token budget")
-
+            logger.info("Skipping Phase 3: insufficient token budget")
         # Phase 4: Historical context (for queries needing evolution tracking)
         if query_type in [QueryType.RECENT, QueryType.WHY, QueryType.HOW, QueryType.OVERVIEW]:
-            print(
-                f"[ContextBuilder] Phase 4: query type {query_type.value} needs historical context"
-            )
+            logger.info(f"Phase 4: query type {query_type.value} needs historical context")
             if context.tokens_remaining > budget.reserved_buffer:
-                print("[ContextBuilder] Fetching historical context...")
+                logger.info("Fetching historical context...")
                 history_states = await self._get_historical_context(
                     latest_states=latest_states,
                     max_tokens=min(context.tokens_remaining - budget.reserved_buffer, 2000),
                 )
                 # Add to detailed states
                 context.detailed_states.extend(history_states)
-                print(
-                    f"[ContextBuilder] Phase 4 completed: added {len(history_states)} historical states"
-                )
+                logger.info(f"Phase 4 completed: added {len(history_states)} historical states")
 
                 history_tokens = sum(
                     TokenEstimate.estimate(state.content).estimated_tokens
@@ -172,11 +160,9 @@ class ContextBuilder:
                 context.tokens_used += history_tokens
                 context.tokens_remaining = context.max_tokens - context.tokens_used
             else:
-                print("[ContextBuilder] Skipping Phase 4: insufficient token budget")
+                logger.info("Skipping Phase 4: insufficient token budget")
         else:
-            print(
-                f"[ContextBuilder] Skipping Phase 4: query type {query_type.value} doesn't need history"
-            )
+            logger.info(f"Skipping Phase 4: query type {query_type.value} doesn't need history")
 
         # Extract topics
         all_states = context.latest_states + context.summaries + context.detailed_states
@@ -374,14 +360,23 @@ class ContextBuilder:
         max_tokens: int,
     ) -> list[MemoryState]:
         """Get latest states for query"""
+        logger.info(f"_get_latest_states: query='{query[:50]}...', max_tokens={max_tokens}")
+        # Get total states count from MemoryService (unified method)
+        total_states = await self.memory_service.count_states(latest_only=False)
+
+        # Use dynamic limit based on actual database size (minimum 100)
+        search_limit = max(total_states, 100)
+        logger.info(f"_get_latest_states: database has {total_states} states, using limit={search_limit}")
         # Use retrieval service for semantic search
+        # Lower threshold for broad queries (0.3 allows more relevant results)
         results = await self.retrieval_service.semantic_search(
             query=query,
-            limit=20,
-            score_threshold=0.5,
+            limit=search_limit,
+            score_threshold=0.3,
             latest_only=True,
         )
 
+        logger.info(f"_get_latest_states: semantic_search returned {len(results)} results")
         # Convert to memory states and apply token budget
         states = []
         tokens_used = 0
@@ -389,11 +384,13 @@ class ContextBuilder:
         for result in results:
             state_tokens = TokenEstimate.estimate(result.state.content).estimated_tokens
             if tokens_used + state_tokens > max_tokens:
+                logger.info(f"_get_latest_states: token budget exceeded, stopping at {len(states)} states")
                 break
 
             states.append(result.state)
             tokens_used += state_tokens
 
+        logger.info(f"_get_latest_states: returning {len(states)} states, tokens_used={tokens_used}")
         return states
 
     async def _get_summaries(
@@ -417,23 +414,24 @@ class ContextBuilder:
     ) -> list[MemoryState]:
         """Get detailed states via selective drill-down"""
         if not latest_states:
-            print("[ContextBuilder] _get_detailed_states: no latest_states, returning empty")
+            logger.info("_get_detailed_states: no latest_states, returning empty")
             return []
 
-        print(
-            "[ContextBuilder] _get_detailed_states: calling graph_enhanced_retrieval with depth=2, limit=10"
-        )
+        # Get total state count from database for dynamic limit
+        total_states = await self.memory_service.count_states(latest_only=False)
+        # Use all states, no artificial limit
+        retrieval_limit = total_states if total_states > 0 else 1000
+
+        logger.info(f"_get_detailed_states: calling graph_enhanced_retrieval with depth=2, limit={retrieval_limit} (dynamic based on DB count)")
         # Use graph-enhanced retrieval for detailed context
         results = await self.retrieval_service.graph_enhanced_retrieval(
             query=query,
             depth=2,
-            limit=10,
+            limit=retrieval_limit,
             include_historical=True,
             historical_steps=5,
         )
-        print(
-            f"[ContextBuilder] _get_detailed_states: got {len(results)} results from graph_enhanced_retrieval"
-        )
+        logger.info(f"_get_detailed_states: got {len(results)} results from graph_enhanced_retrieval")
 
         # Convert to states and apply token budget
         states = []
@@ -441,18 +439,14 @@ class ContextBuilder:
         seen_ids = {state.id for state in latest_states}
 
         for result in results:
-            print(
-                f"[ContextBuilder] Processing result: topic={result.state.topic}, id={result.state.id}, related_states={len(result.related_states) if result.related_states else 0}"
-            )
+            logger.info(f"Processing result: topic={result.state.topic}, id={result.state.id}, related_states={len(result.related_states) if result.related_states else 0}")
 
             # Skip if already included in latest states
             if result.state.id in seen_ids:
-                print(f"[ContextBuilder] Skipping {result.state.topic} (already in latest_states)")
+                logger.info(f"Skipping {result.state.topic} (already in latest_states)")
                 # Still process related states even if main state is skipped
                 if result.related_states:
-                    print(
-                        f"[ContextBuilder] But still checking {len(result.related_states)} related states..."
-                    )
+                    logger.info(f"But still checking {len(result.related_states)} related states...")
                     # Jump to related states processing
                 else:
                     continue
@@ -467,9 +461,7 @@ class ContextBuilder:
 
             # Also include related states from graph traversal
             if result.related_states:
-                print(
-                    f"[ContextBuilder] Found {len(result.related_states)} related states for {result.state.topic}"
-                )
+                logger.info(f"Found {len(result.related_states)} related states for {result.state.topic}")
                 for related_info in result.related_states:
                     # Extract state_id from Neo4j node
                     related_id_str = related_info.get("memory", {}).get("id")
@@ -512,13 +504,11 @@ class ContextBuilder:
                         states.append(related_state)
                         tokens_used += related_tokens
                         seen_ids.add(related_id)
-                        print(
-                            f"[ContextBuilder] Added related state: {related_state.topic} (depth={related_info.get('depth', '?')})"
-                        )
+                        logger.info(f"Added related state: {related_state.topic} (depth={related_info.get('depth', '?')})")
 
                     except Exception as e:
                         # Skip invalid IDs
-                        print(f"[ContextBuilder] Failed to fetch related state: {e}")
+                        logger.error(f"Failed to fetch related state: {e}")
                         continue
 
         return states

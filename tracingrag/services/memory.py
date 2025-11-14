@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracingrag.config import settings
@@ -18,6 +18,10 @@ from tracingrag.storage.neo4j_client import (
     inherit_parent_relationships,
 )
 from tracingrag.storage.qdrant import upsert_embedding
+
+from tracingrag.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class MemoryService:
@@ -59,6 +63,20 @@ class MemoryService:
             # Determine version
             version = await self._get_next_version(session, topic)
 
+            # Auto-infer parent_state_id if not provided and this is not the first version
+            if parent_state_id is None and version > 1:
+                # Get the latest state for this topic to use as parent
+                result = await session.execute(
+                    select(MemoryStateDB)
+                    .where(MemoryStateDB.topic == topic)
+                    .order_by(MemoryStateDB.version.desc())
+                    .limit(1)
+                )
+                latest_state = result.scalar_one_or_none()
+                if latest_state:
+                    parent_state_id = latest_state.id
+                    logger.info(f"Auto-inferred parent_state_id for {topic} v{version}: {parent_state_id}")
+
             # Generate embedding
             text_for_embedding = await prepare_text_for_embedding(
                 content,
@@ -90,50 +108,75 @@ class MemoryService:
             session.add(state)
             await session.flush()
 
-            # Store embedding in Qdrant
-            await upsert_embedding(
-                state_id=state_id,
-                embedding=embedding,
-                payload={
-                    "topic": topic,
-                    "version": version,
-                    "storage_tier": "active",
-                    "entity_type": entity_type,
-                    "is_consolidated": False,
-                    "consolidation_level": 0,
-                },
-            )
+            # Concurrently write to Qdrant and Neo4j (PERFORMANCE OPTIMIZATION!)
+            import asyncio
 
-            # Create graph node in Neo4j
-            await create_memory_node(
-                state_id=state_id,
-                topic=topic,
-                version=version,
-                timestamp=timestamp.isoformat(),
-                storage_tier="active",
-                metadata=metadata or {},
-            )
+            tasks = [
+                # Store embedding in Qdrant
+                upsert_embedding(
+                    state_id=state_id,
+                    embedding=embedding,
+                    payload={
+                        "topic": topic,
+                        "version": version,
+                        "storage_tier": "active",
+                        "entity_type": entity_type,
+                        "is_consolidated": False,
+                        "consolidation_level": 0,
+                        "is_latest": True,  # New states are always latest
+                    },
+                ),
+                # Create graph node in Neo4j
+                create_memory_node(
+                    state_id=state_id,
+                    topic=topic,
+                    version=version,
+                    timestamp=timestamp.isoformat(),
+                    storage_tier="active",
+                    metadata=metadata or {},
+                ),
+            ]
 
-            # Create evolution edge if parent exists
+            # Add evolution edge task if parent exists
             if parent_state_id:
-                await create_evolution_edge(
-                    parent_id=parent_state_id,
-                    child_id=state_id,
-                    relationship_type="EVOLVED_TO",
-                    edge_properties={"timestamp": timestamp.isoformat()},
-                )
-
-                # Simple relationship inheritance (fast, happens in transaction)
-                # Note: If intelligent updates are enabled, this will be replaced later
-                if not settings.intelligent_relationship_updates:
-                    inherited_count = await inherit_parent_relationships(
+                tasks.append(
+                    create_evolution_edge(
                         parent_id=parent_state_id,
                         child_id=state_id,
+                        relationship_type="EVOLVED_TO",
+                        edge_properties={"timestamp": timestamp.isoformat()},
                     )
-                    if inherited_count > 0:
-                        print(
-                            f"[MemoryService] Inherited {inherited_count} relationships from parent (simple)"
-                        )
+                )
+
+            # Execute all writes concurrently
+            await asyncio.gather(*tasks)
+
+            # Update parent state's is_latest to False if this is an evolution
+            if parent_state_id:
+                try:
+                    from qdrant_client import models
+
+                    from tracingrag.storage.qdrant import get_qdrant_client
+
+                    qdrant_client = get_qdrant_client()
+                    qdrant_client.set_payload(
+                        collection_name="memory_states",
+                        payload={"is_latest": False},
+                        points=[str(parent_state_id)],
+                    )
+                    logger.debug(f"Updated parent {parent_state_id} is_latest=False")
+                except Exception as e:
+                    logger.warning(f"Failed to update parent is_latest (non-critical): {e}")
+
+            # Simple relationship inheritance (fast, happens in transaction)
+            # Note: If intelligent updates are enabled, this will be replaced later
+            if parent_state_id and not settings.intelligent_relationship_updates:
+                inherited_count = await inherit_parent_relationships(
+                    parent_id=parent_state_id,
+                    child_id=state_id,
+                )
+                if inherited_count > 0:
+                    logger.info(f"Inherited {inherited_count} relationships from parent (simple)")
 
             # Update or create trace
             await self._update_trace(session, topic, state_id)
@@ -153,48 +196,75 @@ class MemoryService:
                     similarity_threshold=settings.cascading_evolution_similarity_threshold,
                     max_evolutions=settings.cascading_evolution_max_topics,
                 )
-                print(
-                    f"[MemoryService] Cascading evolution completed: "
+                logger.info(
+                    f"Cascading evolution completed: "
                     f"{len(evolution_stats['evolved_topics'])} topics evolved, "
                     f"{len(evolution_stats['skipped_topics'])} skipped"
                 )
             except Exception as e:
                 # Don't fail memory creation if cascading evolution fails
-                print(f"[MemoryService] Cascading evolution failed (non-critical): {e}")
+                logger.error(f"Cascading evolution failed (non-critical): {e}")
 
-        # Intelligent relationship updates on evolution (outside transaction)
-        if parent_state_id and settings.intelligent_relationship_updates:
+        # Intelligent relationship management (outside transaction)
+        if settings.intelligent_relationship_updates:
             try:
                 from tracingrag.services.relationship_manager import get_relationship_manager
 
                 relationship_manager = get_relationship_manager()
-                stats = await relationship_manager.update_relationships_on_evolution(
-                    new_state=state,
-                    parent_state_id=parent_state_id,
-                    similarity_threshold=settings.relationship_update_similarity_threshold,
-                )
-                print(
-                    f"[MemoryService] Intelligent relationship update completed: "
-                    f"{stats['kept']} kept, {stats['updated']} updated, "
-                    f"{stats['created']} created, {stats['deleted']} deleted"
-                )
-            except Exception as e:
-                # Fallback to simple inheritance if intelligent update fails
-                print(f"[MemoryService] Intelligent relationship update failed: {e}")
-                print("[MemoryService] Falling back to simple inheritance")
-                try:
-                    inherited_count = await inherit_parent_relationships(
-                        parent_id=parent_state_id,
-                        child_id=state.id,
-                    )
-                    if inherited_count > 0:
-                        print(f"[MemoryService] Inherited {inherited_count} relationships (fallback)")
-                except Exception as fallback_e:
-                    print(f"[MemoryService] Fallback inheritance also failed: {fallback_e}")
 
-        # Auto-link related memories (outside transaction to avoid blocking)
-        # Note: Disabled if intelligent relationship updates are enabled (to avoid duplication)
-        if not settings.intelligent_relationship_updates:
+                # Evolution scenario: Update relationships based on parent
+                if parent_state_id:
+                    stats = await relationship_manager.update_relationships_on_evolution(
+                        new_state=state,
+                        parent_state_id=parent_state_id,
+                        similarity_threshold=settings.relationship_update_similarity_threshold,
+                    )
+                    logger.info(
+                        f"Intelligent relationship update completed: "
+                        f"{stats['kept']} kept, {stats['updated']} updated, "
+                        f"{stats['created']} created, {stats['deleted']} deleted"
+                    )
+                # First-time creation scenario: Create initial relationships
+                else:
+                    stats = await relationship_manager.create_initial_relationships(
+                        new_state=state,
+                        similarity_threshold=settings.relationship_update_similarity_threshold,
+                    )
+                    logger.info(
+                        f"Initial relationships created: {stats['created']} relationships"
+                    )
+            except Exception as e:
+                # Fallback to simple approach if intelligent update fails
+                logger.error(f"Intelligent relationship management failed: {e}")
+
+                if parent_state_id:
+                    # Fallback for evolution: simple inheritance
+                    logger.info("Falling back to simple inheritance")
+                    try:
+                        inherited_count = await inherit_parent_relationships(
+                            parent_id=parent_state_id,
+                            child_id=state.id,
+                        )
+                        if inherited_count > 0:
+                            logger.info(f"Inherited {inherited_count} relationships (fallback)")
+                    except Exception as fallback_e:
+                        logger.error(f"Fallback inheritance also failed: {fallback_e}")
+                else:
+                    # Fallback for first-time: auto-link
+                    logger.info("Falling back to auto-link")
+                    try:
+                        linked = await self.auto_link_related_memories(
+                            new_state=state,
+                            max_candidates=10,
+                            similarity_threshold=0.6,
+                        )
+                        if linked:
+                            logger.info(f"Auto-linked {len(linked)} related memories (fallback)")
+                    except Exception as fallback_e:
+                        logger.error(f"Fallback auto-link also failed: {fallback_e}")
+
+        # Simple auto-link (only if intelligent updates disabled)
+        elif not settings.intelligent_relationship_updates:
             try:
                 linked = await self.auto_link_related_memories(
                     new_state=state,
@@ -202,10 +272,10 @@ class MemoryService:
                     similarity_threshold=0.6,
                 )
                 if linked:
-                    print(f"[MemoryService] Auto-linked {len(linked)} related memories for {topic}")
+                    logger.info(f"Auto-linked {len(linked)} related memories for {topic}")
             except Exception as e:
                 # Don't fail memory creation if auto-linking fails
-                print(f"[MemoryService] Auto-linking failed (non-critical): {e}")
+                logger.error(f"Auto-linking failed (non-critical): {e}")
 
         return state
 
@@ -276,6 +346,30 @@ class MemoryService:
                 .offset(offset)
             )
             return list(result.scalars().all())
+
+    async def count_states(self, latest_only: bool = False) -> int:
+        """Count total number of memory states in database
+
+        Args:
+            latest_only: If True, only count latest states per topic
+
+        Returns:
+            Total count of memory states
+        """
+        async with get_session() as session:
+            if latest_only:
+                # Count distinct topics (one per topic)
+                result = await session.execute(
+                    select(func.count(func.distinct(MemoryStateDB.topic)))
+                )
+            else:
+                # Count all states
+                result = await session.execute(
+                    select(func.count()).select_from(MemoryStateDB)
+                )
+            count = result.scalar_one()
+            logger.info(f"count_states: {count} (latest_only={latest_only})")
+            return count
 
     async def update_memory_state(
         self,
@@ -356,7 +450,7 @@ class MemoryService:
             await session.execute(
                 delete(TopicLatestStateDB).where(TopicLatestStateDB.latest_state_id == state_id)
             )
-            print(f"[MemoryService] Deleted from topic_latest_states: {state_id}")
+            logger.info(f"Deleted from topic_latest_states: {state_id}")
 
             # Delete from PostgreSQL
             await session.delete(state)
@@ -364,22 +458,20 @@ class MemoryService:
             # Delete from Qdrant
             try:
                 await delete_embedding(state_id=state_id)
-                print(f"[MemoryService] Deleted embedding from Qdrant: {state_id}")
+                logger.info(f"Deleted embedding from Qdrant: {state_id}")
             except Exception as e:
-                print(f"[MemoryService] Failed to delete from Qdrant (non-critical): {e}")
+                logger.error(f"Failed to delete from Qdrant (non-critical): {e}")
 
             # Delete from Neo4j
             try:
                 await delete_memory_node(state_id=state_id)
-                print(f"[MemoryService] Deleted node from Neo4j: {state_id}")
+                logger.info(f"Deleted node from Neo4j: {state_id}")
             except Exception as e:
-                print(f"[MemoryService] Failed to delete from Neo4j (non-critical): {e}")
+                logger.error(f"Failed to delete from Neo4j (non-critical): {e}")
 
             await session.commit()
 
-            print(
-                f"[MemoryService] Successfully deleted memory state: {state_id} (topic: {state.topic})"
-            )
+            logger.info(f"Successfully deleted memory state: {state_id} (topic: {state.topic})")
             return True
 
     async def _get_next_version(self, session: AsyncSession, topic: str) -> int:
@@ -473,12 +565,10 @@ class MemoryService:
         ]
 
         if not candidates:
-            print(f"[AutoLink] No similar candidates found for {new_state.topic}")
+            logger.info(f"No similar candidates found for {new_state.topic}")
             return []
 
-        print(
-            f"[AutoLink] Found {len(candidates)} candidates for {new_state.topic}, analyzing with LLM..."
-        )
+        logger.info(f"Found {len(candidates)} candidates for {new_state.topic}, analyzing with LLM...")
 
         # Stage 2: Use LLM to analyze which ones are truly related
         # Prepare context
@@ -513,16 +603,41 @@ CANDIDATE MEMORIES:
 
 For each candidate that IS related to the new memory, determine:
 1. Whether they are related (yes/no)
-2. Relationship type: "RELATED_TO", "DEPENDS_ON", "CAUSED_BY", "SIMILAR_TO", "MENTIONS"
+2. Relationship type (MUST be one of): "RELATED_TO", "DEPENDS_ON", "CAUSED_BY", "SIMILAR_TO", "MENTIONS"
 3. Confidence (0.0-1.0)
 
-Respond with JSON array of related memories only (empty array if none):
-[
-  {{"candidate_id": 1, "relationship_type": "RELATED_TO", "confidence": 0.85, "reasoning": "brief explanation"}},
-  ...
-]
-
+Respond with JSON array of related memories only (empty array if none).
 Only include candidates with confidence >= 0.7."""
+
+            # JSON schema to enforce relationship_type enum
+            schema = {
+                "name": "auto_link_analysis",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "relationships": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "candidate_id": {"type": "integer"},
+                                    "relationship_type": {
+                                        "type": "string",
+                                        "enum": ["RELATED_TO", "DEPENDS_ON", "CAUSED_BY", "SIMILAR_TO", "MENTIONS"],
+                                    },
+                                    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                                    "reasoning": {"type": "string"},
+                                },
+                                "required": ["candidate_id", "relationship_type", "confidence", "reasoning"],
+                                "additionalProperties": False,
+                            },
+                        }
+                    },
+                    "required": ["relationships"],
+                    "additionalProperties": False,
+                },
+            }
 
             # Query LLM
             llm_client = get_llm_client()
@@ -535,32 +650,58 @@ Only include candidates with confidence >= 0.7."""
                     temperature=0.1,  # Low temperature for consistency
                     max_tokens=1000,
                     metadata={"task": "auto_link_analysis"},
+                    json_schema=schema,
                 )
 
                 response = await llm_client.generate(request)
 
                 # Parse JSON response
                 try:
-                    # Extract JSON from response (might have markdown)
                     content = response.content.strip()
-                    if "```json" in content:
-                        content = content.split("```json")[1].split("```")[0]
-                    elif "```" in content:
-                        content = content.split("```")[1].split("```")[0]
+                    result = json.loads(content)
 
-                    analysis = json.loads(content)
+                    # Handle schema: {"relationships": [...]}
+                    relationships = result.get("relationships", [])
+
+                    # Valid relationship types (must match schema enum)
+                    VALID_TYPES = {"RELATED_TO", "DEPENDS_ON", "CAUSED_BY", "SIMILAR_TO", "MENTIONS"}
+
+                    # Validate and filter relationships
+                    valid_relationships = []
+                    for item in relationships:
+                        rel_type = item.get("relationship_type", "").upper()
+
+                        # Validate relationship type
+                        if rel_type not in VALID_TYPES:
+                            logger.warning(f"Invalid relationship type '{rel_type}', skipping")
+                            continue
+
+                        valid_relationships.append({
+                            "candidate_id": item["candidate_id"],
+                            "relationship_type": rel_type,
+                            "confidence": item["confidence"],
+                            "reasoning": item.get("reasoning", ""),
+                        })
+
+                    # If all relationships were invalid, log error and create default RELATED_TO
+                    if relationships and not valid_relationships and batch:
+                        logger.error(f"All relationships were invalid, creating default RELATED_TO for first candidate")
+                        valid_relationships.append({
+                            "candidate_id": 1,
+                            "relationship_type": "RELATED_TO",
+                            "confidence": 0.5,
+                            "reasoning": "Default relationship (all LLM suggestions were invalid)",
+                        })
 
                     # Create relationships
-                    for item in analysis:
+                    for item in valid_relationships:
                         candidate_idx = item["candidate_id"] - 1  # Convert to 0-indexed
                         if 0 <= candidate_idx < len(batch):
                             related_state = batch[candidate_idx].state
                             relationship_type = item["relationship_type"]
                             confidence = item["confidence"]
 
-                            print(
-                                f"[AutoLink] Linking {new_state.topic} -> {related_state.topic} ({relationship_type}, conf={confidence:.2f})"
-                            )
+                            logger.info(f"Linking {new_state.topic} -> {related_state.topic} ({relationship_type}, conf={confidence:.2f})")
 
                             # Create relationship in Neo4j (MemoryState to MemoryState)
                             await create_evolution_edge(
@@ -569,7 +710,7 @@ Only include candidates with confidence >= 0.7."""
                                 relationship_type=relationship_type,
                                 edge_properties={
                                     "confidence": confidence,
-                                    "reasoning": item.get("reasoning", ""),
+                                    "reasoning": item["reasoning"],
                                     "auto_generated": True,
                                 },
                             )
@@ -579,11 +720,11 @@ Only include candidates with confidence >= 0.7."""
                             )
 
                 except json.JSONDecodeError as e:
-                    print(f"[AutoLink] Failed to parse LLM response: {e}")
-                    print(f"[AutoLink] Response was: {response.content[:200]}")
+                    logger.error(f"Failed to parse LLM response: {e}")
+                    logger.info(f"Response was: {response.content[:200]}")
 
             except Exception as e:
-                print(f"[AutoLink] Error during LLM analysis: {e}")
+                logger.error(f"Error during LLM analysis: {e}")
 
-        print(f"[AutoLink] Created {len(linked_memories)} automatic links for {new_state.topic}")
+        logger.info(f"Created {len(linked_memories)} automatic links for {new_state.topic}")
         return linked_memories

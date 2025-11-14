@@ -20,7 +20,7 @@ from tracingrag.client import AsyncTracingRAGClient
 
 async def main():
     """Complex research lab scenario"""
-    client = AsyncTracingRAGClient("http://localhost:8000")
+    client = AsyncTracingRAGClient("http://localhost:8000", timeout=120.0)
 
     print("=" * 70)
     print("🔬 Complex Test: Research Lab with Cascading Evolution")

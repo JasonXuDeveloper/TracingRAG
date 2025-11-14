@@ -12,45 +12,45 @@ class RelationshipType(str, Enum):
     """Types of relationships between memory states"""
 
     # Evolution relationships
-    EVOLVED_TO = "evolved_to"
-    EVOLVED_FROM = "evolved_from"
-    SUPERSEDES = "supersedes"
-    SUPERSEDED_BY = "superseded_by"
+    EVOLVED_TO = "EVOLVED_TO"
+    EVOLVED_FROM = "EVOLVED_FROM"
+    SUPERSEDES = "SUPERSEDES"
+    SUPERSEDED_BY = "SUPERSEDED_BY"
 
     # Content relationships
-    RELATES_TO = "relates_to"
-    REFERENCES = "references"
-    REFERENCED_BY = "referenced_by"
-    DEPENDS_ON = "depends_on"
-    REQUIRED_BY = "required_by"
+    RELATES_TO = "RELATES_TO"
+    REFERENCES = "REFERENCES"
+    REFERENCED_BY = "REFERENCED_BY"
+    DEPENDS_ON = "DEPENDS_ON"
+    REQUIRED_BY = "REQUIRED_BY"
 
     # Causal relationships
-    CAUSES = "causes"
-    CAUSED_BY = "caused_by"
-    ENABLES = "enables"
-    ENABLED_BY = "enabled_by"
-    PREVENTS = "prevents"
-    PREVENTED_BY = "prevented_by"
+    CAUSES = "CAUSES"
+    CAUSED_BY = "CAUSED_BY"
+    ENABLES = "ENABLES"
+    ENABLED_BY = "ENABLED_BY"
+    PREVENTS = "PREVENTS"
+    PREVENTED_BY = "PREVENTED_BY"
 
     # Semantic relationships
-    SUPPORTS = "supports"
-    SUPPORTED_BY = "supported_by"
-    CONTRADICTS = "contradicts"
-    CONTRADICTED_BY = "contradicted_by"
-    EXPLAINS = "explains"
-    EXPLAINED_BY = "explained_by"
+    SUPPORTS = "SUPPORTS"
+    SUPPORTED_BY = "SUPPORTED_BY"
+    CONTRADICTS = "CONTRADICTS"
+    CONTRADICTED_BY = "CONTRADICTED_BY"
+    EXPLAINS = "EXPLAINS"
+    EXPLAINED_BY = "EXPLAINED_BY"
 
     # Structural relationships
-    PART_OF = "part_of"
-    CONTAINS = "contains"
-    SIMILAR_TO = "similar_to"
-    DERIVED_FROM = "derived_from"
+    PART_OF = "PART_OF"
+    CONTAINS = "CONTAINS"
+    SIMILAR_TO = "SIMILAR_TO"
+    DERIVED_FROM = "DERIVED_FROM"
 
     # Domain-specific relationships (can be extended)
-    MENTIONS = "mentions"
-    MENTIONED_BY = "mentioned_by"
-    IMPLEMENTS = "implements"
-    IMPLEMENTED_BY = "implemented_by"
+    MENTIONS = "MENTIONS"
+    MENTIONED_BY = "MENTIONED_BY"
+    IMPLEMENTS = "IMPLEMENTS"
+    IMPLEMENTED_BY = "IMPLEMENTED_BY"
 
 
 class Edge(BaseModel):

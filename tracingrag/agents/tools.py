@@ -10,6 +10,9 @@ from tracingrag.services.embedding import generate_embedding
 from tracingrag.services.graph import GraphService
 from tracingrag.services.memory import MemoryService
 from tracingrag.services.retrieval import RetrievalService
+from tracingrag.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class VectorSearchInput(BaseModel):
@@ -91,9 +94,7 @@ class AgentTools:
         start_time = time.time()
 
         try:
-            print(
-                f"[AgentTools] vector_search called with: query='{query}', limit={limit}, score_threshold={score_threshold}"
-            )
+            logger.info(f"vector_search called with: query='{query}', limit={limit}, score_threshold={score_threshold}")
 
             # Use graph-enhanced retrieval to include related memories
             results = await self.retrieval_service.graph_enhanced_retrieval(
@@ -102,8 +103,7 @@ class AgentTools:
                 limit=limit,
                 include_historical=False,  # Don't need history for agent
             )
-            print(f"[AgentTools] graph_enhanced_retrieval returned {len(results)} results")
-
+            logger.info(f"graph_enhanced_retrieval returned {len(results)} results")
             # Collect all unique states (initial matches + related states)
             all_states = []
             seen_ids = set()
@@ -126,9 +126,7 @@ class AgentTools:
 
                 # Add related states from graph
                 if result.related_states:
-                    print(
-                        f"[AgentTools] Found {len(result.related_states)} related states for {result.state.topic}"
-                    )
+                    logger.info(f"Found {len(result.related_states)} related states for {result.state.topic}")
                     for related_info in result.related_states:
                         related_id_str = related_info.get("memory", {}).get("id")
                         if related_id_str and related_id_str not in seen_ids:
@@ -157,14 +155,10 @@ class AgentTools:
                                         }
                                     )
                                     seen_ids.add(related_id_str)
-                                    print(
-                                        f"[AgentTools] Added related state: {related_state.topic}"
-                                    )
+                                    logger.info(f"Added related state: {related_state.topic}")
                             except Exception as e:
-                                print(f"[AgentTools] Failed to fetch related state: {e}")
-
-            print(f"[AgentTools] vector_search returning {len(all_states)} total states")
-
+                                logger.error(f"Failed to fetch related state: {e}")
+            logger.info(f"vector_search returning {len(all_states)} total states")
             return {
                 "success": True,
                 "count": len(all_states),

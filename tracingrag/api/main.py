@@ -30,6 +30,9 @@ from tracingrag.services.promotion import PromotionService
 from tracingrag.services.rag import RAGService
 from tracingrag.storage.database import get_session
 from tracingrag.storage.models import MemoryStateDB
+from tracingrag.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # Global services
 memory_service: MemoryService | None = None
@@ -45,14 +48,12 @@ async def lifespan(app: FastAPI):
     global memory_service, rag_service, agent_service, promotion_service
 
     # Startup
-    print("Initializing TracingRAG services...")
-
+    logger.info("Initializing TracingRAG services...")
     # Initialize database
     from tracingrag.storage.database import init_db
 
     await init_db()
-    print("✓ Database initialized")
-
+    logger.info("✓ Database initialized")
     # Initialize Qdrant collection
     try:
         from tracingrag.services.embedding import get_embedding_dimension
@@ -63,19 +64,17 @@ async def lifespan(app: FastAPI):
             collection_name="memory_states",
             vector_size=embedding_dim,
         )
-        print(f"✓ Qdrant collection initialized (dimension: {embedding_dim})")
+        logger.info(f"✓ Qdrant collection initialized (dimension: {embedding_dim})")
     except Exception as e:
-        print(f"⚠ Qdrant initialization failed (will retry on first use): {e}")
-
+        logger.error(f"⚠ Qdrant initialization failed (will retry on first use): {e}")
     # Initialize Neo4j schema (indexes and constraints)
     try:
         from tracingrag.storage.neo4j_client import init_neo4j_schema
 
         await init_neo4j_schema()
-        print("✓ Neo4j schema initialized")
+        logger.info("✓ Neo4j schema initialized")
     except Exception as e:
-        print(f"⚠ Neo4j initialization failed (optional): {e}")
-
+        logger.error(f"⚠ Neo4j initialization failed (optional): {e}")
     # Initialize services (with lazy loading, no LLM client needed)
     from tracingrag.config import settings
     from tracingrag.core.models.promotion import PromotionMode, PromotionPolicy
@@ -92,29 +91,27 @@ async def lifespan(app: FastAPI):
     promotion_service = PromotionService(policy=promotion_policy)
 
     # Print model configuration
-    print("\n" + "=" * 70)
-    print("🤖 LLM Model Configuration:")
-    print("=" * 70)
-    print(f"  Main Query Model:      {settings.default_llm_model}")
-    print(f"  Fallback Model:        {settings.fallback_llm_model}")
-    print(f"  Analysis Model:        {settings.analysis_model}")
-    print(f"  Evaluation Model:      {settings.evaluation_model}")
-    print(f"  Query Analyzer Model:  {settings.query_analyzer_model}")
-    print(f"  Planner Model:         {settings.planner_model}")
-    print(f"  Manager Model:         {settings.manager_model}")
-    print(f"  Auto-Link Model:       {settings.auto_link_model}")
-    print("=" * 70)
-
+    logger.info("\n" + "=" * 70)
+    logger.info("🤖 LLM Model Configuration:")
+    logger.info("=" * 70)
+    logger.info(f"  Main Query Model:      {settings.default_llm_model}")
+    logger.info(f"  Fallback Model:        {settings.fallback_llm_model}")
+    logger.info(f"  Analysis Model:        {settings.analysis_model}")
+    logger.info(f"  Evaluation Model:      {settings.evaluation_model}")
+    logger.info(f"  Query Analyzer Model:  {settings.query_analyzer_model}")
+    logger.info(f"  Planner Model:         {settings.planner_model}")
+    logger.info(f"  Manager Model:         {settings.manager_model}")
+    logger.info(f"  Auto-Link Model:       {settings.auto_link_model}")
+    logger.info("=" * 70)
     if settings.auto_promotion_enabled:
-        print("✓ TracingRAG services initialized (Auto-promotion: ENABLED)")
+        logger.info("✓ TracingRAG services initialized (Auto-promotion: ENABLED)")
     else:
-        print("✓ TracingRAG services initialized (Auto-promotion: Manual)")
-    print()
-
+        logger.info("✓ TracingRAG services initialized (Auto-promotion: Manual)")
+    logger.info("")
     yield
 
     # Shutdown
-    print("Shutting down TracingRAG services...")
+    logger.info("Shutting down TracingRAG services...")
     from tracingrag.storage.database import close_db
     from tracingrag.storage.neo4j_client import close_neo4j
     from tracingrag.storage.qdrant import close_qdrant
@@ -122,9 +119,7 @@ async def lifespan(app: FastAPI):
     await close_db()
     await close_qdrant()
     await close_neo4j()
-    print("✓ Connections closed")
-
-
+    logger.info("✓ Connections closed")
 # Create FastAPI app
 app = FastAPI(
     title="TracingRAG API",
@@ -500,7 +495,7 @@ async def query_rag(request: QueryRequest):
         import traceback
 
         error_trace = traceback.format_exc()
-        print(f"Query error traceback:\n{error_trace}")
+        logger.error(f"Query error traceback:\n{error_trace}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Query failed: {str(e)}",

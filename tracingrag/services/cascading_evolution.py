@@ -9,13 +9,20 @@ This module handles cascading updates when a new memory is created:
 """
 
 import json
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from uuid import UUID
 
 from tracingrag.config import settings
 from tracingrag.core.models.rag import LLMRequest
 from tracingrag.services.llm import get_llm_client
 from tracingrag.storage.models import MemoryStateDB
+
+from tracingrag.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+if TYPE_CHECKING:
+    from tracingrag.services.memory import MemoryService
 
 
 class CascadingEvolutionManager:
@@ -30,14 +37,13 @@ class CascadingEvolutionManager:
         similarity_threshold: float = 0.4,
         max_evolutions: int = 10,
     ) -> dict[str, Any]:
-        """Trigger evolution of related topics based on new memory
+        """Trigger single-level cascading evolution with concurrent processing
 
         Strategy:
-        1. Embedding search for semantically related states
-        2. Deduplicate to latest version per topic
-        3. LLM decides which topics should evolve
-        4. Evolve those topics with synthesized content
-        5. Return statistics
+        1. Find semantically related states (latest versions only)
+        2. LLM decides which topics should evolve
+        3. Concurrently evolve selected topics
+        4. Relationship propagation handled by RelationshipManager
 
         Args:
             new_state: The newly created memory state
@@ -45,97 +51,70 @@ class CascadingEvolutionManager:
             max_evolutions: Maximum number of topics to evolve
 
         Returns:
-            Dict with evolution statistics: {evolved_topics, skipped_topics, total_candidates}
+            Dict with evolution statistics
         """
+        import asyncio
         from tracingrag.services.retrieval import RetrievalService
+        from tracingrag.services.memory import MemoryService
 
+        # Statistics
         stats = {
-            "evolved_topics": [],  # Topics that were evolved
-            "skipped_topics": [],  # Topics that were skipped (not relevant enough)
+            "evolved_topics": [],
+            "skipped_topics": [],
             "total_candidates": 0,
         }
 
-        print(
-            f"[CascadingEvolution] Analyzing impact of new memory: {new_state.topic} v{new_state.version}"
-        )
-
-        # Step 1: Get total memory states count for full database search
-        from tracingrag.storage.database import get_session
-
-        async with get_session() as db_session:
-            from sqlalchemy import func, select
-
-            from tracingrag.storage.models import MemoryStateDB
-
-            result = await db_session.execute(select(func.count(MemoryStateDB.id)))
-            total_states = result.scalar() or 0
-
-        search_limit = max(total_states, 1000)  # Use actual count, minimum 1000
-        print(f"   Database has {total_states} states, using limit={search_limit} for full search")
-
-        # Step 2: Find semantically related states via embedding search (full database scan)
+        memory_service = MemoryService()
         retrieval_service = RetrievalService()
+
+        logger.info(f"🌊 Starting single-level cascading evolution from: {new_state.topic} v{new_state.version}")
+
+        # Step 1: Find semantically related states (only search once!)
         similar_states = await retrieval_service.semantic_search(
             query=new_state.content,
-            limit=search_limit,  # Dynamic limit based on actual database size
+            limit=max_evolutions * 3,  # Get more candidates for LLM to filter
             score_threshold=similarity_threshold,
-            latest_only=False,  # Get all versions for deduplication
+            latest_only=True,  # Only get latest versions (no manual deduplication needed)
         )
 
-        # Filter out self and same topic
-        candidate_states_raw = [
-            s
-            for s in similar_states
-            if s.state.id != new_state.id and s.state.topic != new_state.topic
+        # Filter out self
+        candidate_topics = [
+            result for result in similar_states
+            if result.state.id != new_state.id and result.state.topic != new_state.topic
         ]
 
-        print(f"   Found {len(candidate_states_raw)} semantically related states")
-
-        if not candidate_states_raw:
-            print("   No related states found, skipping cascading evolution")
-            return stats
-
-        # Step 2: Deduplicate - keep only latest version of each topic
-        topic_to_latest = {}
-        for result in candidate_states_raw:
-            topic = result.state.topic
-            if topic not in topic_to_latest:
-                topic_to_latest[topic] = result
-            else:
-                # Keep the one with higher version
-                if result.state.version > topic_to_latest[topic].state.version:
-                    topic_to_latest[topic] = result
-
-        candidate_topics = list(topic_to_latest.values())
         stats["total_candidates"] = len(candidate_topics)
 
-        print(f"   After deduplication: {len(candidate_topics)} unique topics to analyze")
+        logger.info(f"   Found {len(similar_states)} similar states")
+        logger.info(f"   After filtering: {len(candidate_topics)} unique topics")
 
-        # Step 3: Use LLM to decide which topics should evolve
+        if not candidate_topics:
+            logger.info(f"   No candidates for {new_state.topic}")
+            return stats
+
+        # Step 2: LLM decides which topics should evolve
         evolution_decisions = await self._llm_evolution_analysis(
             new_state=new_state,
-            candidate_topics=candidate_topics[:max_evolutions],  # Limit to prevent overload
+            candidate_topics=candidate_topics[:max_evolutions],
         )
 
-        # Step 4: Evolve the selected topics
-        from tracingrag.services.memory import MemoryService
+        # Step 3: Concurrently evolve selected topics
+        async def evolve_topic(decision: dict[str, Any]) -> dict[str, Any] | None:
+            """Helper to evolve a single topic"""
+            topic = decision["topic"]
 
-        memory_service = MemoryService()
-
-        for decision in evolution_decisions:
             if not decision["should_evolve"]:
-                stats["skipped_topics"].append(
-                    {
-                        "topic": decision["topic"],
-                        "reason": decision["reasoning"],
-                    }
-                )
-                continue
+                logger.info(f"   ⊘ Skipping {topic}: {decision['reasoning']}")
+                return {
+                    "skipped": True,
+                    "topic": topic,
+                    "reason": decision["reasoning"],
+                }
 
             try:
-                # Evolve this topic by creating a new version
+                # Evolve this topic
                 evolved_state = await memory_service.create_memory_state(
-                    topic=decision["topic"],
+                    topic=topic,
                     content=decision["evolved_content"],
                     parent_state_id=decision["current_state_id"],
                     metadata={
@@ -148,33 +127,55 @@ class CascadingEvolutionManager:
                     confidence=decision.get("confidence", 0.8),
                 )
 
-                stats["evolved_topics"].append(
-                    {
-                        "topic": decision["topic"],
-                        "old_version": decision["current_version"],
-                        "new_version": evolved_state.version,
-                        "new_state_id": str(evolved_state.id),
-                        "reasoning": decision["reasoning"],
-                    }
-                )
+                evolution_info = {
+                    "skipped": False,
+                    "topic": topic,
+                    "old_version": decision["current_version"],
+                    "new_version": evolved_state.version,
+                    "new_state_id": str(evolved_state.id),
+                    "reasoning": decision["reasoning"],
+                }
 
-                print(
-                    f"   ✓ Evolved: {decision['topic']} v{decision['current_version']} → v{evolved_state.version}"
-                )
+                logger.info(f"   ✓ Evolved: {topic} v{decision['current_version']} → v{evolved_state.version}")
+                return evolution_info
 
             except Exception as e:
-                print(f"   ✗ Failed to evolve {decision['topic']}: {e}")
-                stats["skipped_topics"].append(
-                    {
-                        "topic": decision["topic"],
-                        "reason": f"Evolution failed: {str(e)}",
-                    }
-                )
+                logger.error(f"   ✗ Failed to evolve {topic}: {e}")
+                return {
+                    "skipped": True,
+                    "topic": topic,
+                    "reason": f"Evolution failed: {str(e)}",
+                }
 
-        print(
-            f"[CascadingEvolution] Summary: {len(stats['evolved_topics'])} evolved, "
-            f"{len(stats['skipped_topics'])} skipped"
-        )
+        # Execute all evolutions concurrently
+        logger.info(f"   Executing {len(evolution_decisions)} evolutions concurrently...")
+        results = await asyncio.gather(*[evolve_topic(decision) for decision in evolution_decisions])
+
+        # Collect results
+        for result in results:
+            if result:
+                if result.get("skipped"):
+                    stats["skipped_topics"].append({
+                        "topic": result["topic"],
+                        "reason": result["reason"],
+                    })
+                else:
+                    stats["evolved_topics"].append({
+                        "topic": result["topic"],
+                        "old_version": result["old_version"],
+                        "new_version": result["new_version"],
+                        "new_state_id": result["new_state_id"],
+                        "reasoning": result["reasoning"],
+                    })
+
+        # Final summary
+        logger.info(f"\n{'='*70}")
+        logger.info(f"🎉 Single-level Cascading Evolution Complete!")
+        logger.info(f"{'='*70}")
+        logger.info(f"   Total Candidates: {stats['total_candidates']}")
+        logger.info(f"   Total Evolved: {len(stats['evolved_topics'])}")
+        logger.info(f"   Total Skipped: {len(stats['skipped_topics'])}")
+        logger.info(f"{'='*70}\n")
 
         return stats
 
@@ -260,7 +261,12 @@ Respond with JSON array (include ALL topics, mark should_evolve true/false):
                                 "topic": {"type": "string"},
                                 "should_evolve": {"type": "boolean"},
                                 "reasoning": {"type": "string"},
-                                "evolved_content": {"type": "string"},
+                                "evolved_content": {
+                                    "anyOf": [
+                                        {"type": "string"},
+                                        {"type": "null"}
+                                    ]
+                                },
                                 "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                             },
                             "required": [
@@ -268,6 +274,7 @@ Respond with JSON array (include ALL topics, mark should_evolve true/false):
                                 "topic",
                                 "should_evolve",
                                 "reasoning",
+                                "evolved_content",
                                 "confidence",
                             ],
                             "additionalProperties": False,
@@ -293,35 +300,51 @@ Respond with JSON array (include ALL topics, mark should_evolve true/false):
             response = await self.llm_client.generate(request)
             result = json.loads(response.content, strict=False)
 
+            # Handle both {"decisions": [...]} and direct [...] formats
+            # Some LLM providers return array directly despite json_schema specification
+            if isinstance(result, list):
+                logger.info(f"Note: LLM returned array format (expected object)")
+                decisions_list = result
+            elif isinstance(result, dict) and "decisions" in result:
+                decisions_list = result["decisions"]
+            else:
+                logger.info(f"Unexpected response format: {type(result)}")
+                logger.info(f"   Response: {response.content[:500]}")
+                return []
+
             decisions = []
-            for decision in result.get("decisions", []):
-                idx = decision["index"] - 1
+            for decision in decisions_list:
+                # Use .get() for all fields since LLM may return incomplete objects
+                idx = decision.get("index", 0) - 1
                 if idx < 0 or idx >= len(candidate_topics):
+                    logger.warning(f"Warning: Invalid index {idx + 1}, skipping")
                     continue
 
                 candidate = candidate_topics[idx]
 
+                # Validate required fields
+                if not decision.get("topic") or decision.get("should_evolve") is None:
+                    logger.warning(f"Warning: Missing required fields in decision, skipping")
+                    logger.info(f"   Decision: {decision}")
+                    continue
+
                 decision_dict = {
-                    "topic": decision["topic"],
-                    "should_evolve": decision["should_evolve"],
-                    "reasoning": decision["reasoning"],
-                    "confidence": decision["confidence"],
+                    "topic": decision.get("topic", ""),
+                    "should_evolve": decision.get("should_evolve", False),
+                    "reasoning": decision.get("reasoning", "No reasoning provided"),
+                    "confidence": decision.get("confidence", 0.5),  # Default confidence
                     "current_state_id": candidate.state.id,
                     "current_version": candidate.state.version,
                     "current_tags": candidate.state.tags,
+                    "evolved_content": decision.get("evolved_content", None),
                 }
-
-                if decision["should_evolve"] and "evolved_content" in decision:
-                    decision_dict["evolved_content"] = decision["evolved_content"]
-                else:
-                    decision_dict["evolved_content"] = None
 
                 decisions.append(decision_dict)
 
             return decisions
 
         except Exception as e:
-            print(f"[CascadingEvolution] LLM analysis failed: {e}")
+            logger.error(f"LLM analysis failed: {e}")
             # Fallback: don't evolve anything
             return [
                 {

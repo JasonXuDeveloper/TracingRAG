@@ -8,6 +8,9 @@ from neo4j import AsyncDriver, AsyncGraphDatabase
 from neo4j.exceptions import ServiceUnavailable
 
 from tracingrag.config import settings
+from tracingrag.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # Global Neo4j driver instance
 _neo4j_driver: AsyncDriver | None = None
@@ -144,14 +147,15 @@ async def create_evolution_edge(
     """
     driver = get_neo4j_driver()
 
-    # Convert edge properties dict to JSON string for Neo4j storage
-    properties_json = json.dumps(edge_properties) if edge_properties else "{}"
+    # Prepare edge properties - ensure they're a dict
+    props = edge_properties if edge_properties else {}
 
     async with driver.session(database=settings.neo4j_database) as session:
         query = f"""
         MATCH (parent:MemoryState {{id: $parent_id}})
         MATCH (child:MemoryState {{id: $child_id}})
-        CREATE (parent)-[r:{relationship_type} {{properties: $properties}}]->(child)
+        MERGE (parent)-[r:{relationship_type}]->(child)
+        ON CREATE SET r += $properties
         RETURN r
         """
 
@@ -159,7 +163,7 @@ async def create_evolution_edge(
             query,
             parent_id=str(parent_id),
             child_id=str(child_id),
-            properties=properties_json,
+            properties=props,
         )
 
 
@@ -314,11 +318,13 @@ async def create_memory_relationship(
                 target_id=str(target_id),
             )
 
-        # Create new relationship
+        # Use MERGE to avoid creating duplicate relationships
         create_query = f"""
         MATCH (source:MemoryState {{id: $source_id}})
         MATCH (target:MemoryState {{id: $target_id}})
-        CREATE (source)-[r:{relationship_type} {{properties: $properties}}]->(target)
+        MERGE (source)-[r:{relationship_type}]->(target)
+        ON CREATE SET r.properties = $properties
+        ON MATCH SET r.properties = $properties
         RETURN r
         """
 
@@ -522,7 +528,7 @@ async def delete_memory_node(state_id: UUID) -> None:
                     """,
                     topic_name=topic_name,
                 )
-                print(f"[Neo4j] Deleted orphan Topic node: {topic_name}")
+                logger.info(f"Deleted orphan Topic node: {topic_name}")
 
 
 async def close_neo4j() -> None:

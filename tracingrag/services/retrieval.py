@@ -11,6 +11,9 @@ from tracingrag.storage.database import get_session
 from tracingrag.storage.models import MemoryStateDB, TopicLatestStateDB
 from tracingrag.storage.neo4j_client import get_related_memories
 from tracingrag.storage.qdrant import search_similar
+from tracingrag.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class RetrievalResult:
@@ -62,6 +65,22 @@ class RetrievalResult:
 class RetrievalService:
     """Service for retrieving memory states using various strategies"""
 
+    def __init__(self, memory_service=None):
+        """Initialize retrieval service
+
+        Args:
+            memory_service: Optional MemoryService instance for counting states
+        """
+        self._memory_service = memory_service
+
+    @property
+    def memory_service(self):
+        """Lazy-load memory service"""
+        if self._memory_service is None:
+            from tracingrag.services.memory import MemoryService
+            self._memory_service = MemoryService()
+        return self._memory_service
+
     async def semantic_search(
         self,
         query: str,
@@ -85,12 +104,13 @@ class RetrievalService:
         # Generate query embedding
         query_embedding = await generate_embedding(query)
 
-        # Vector search in Qdrant
+        # Vector search in Qdrant (with direct latest_only filtering in Qdrant!)
         candidates = await search_similar(
             query_vector=query_embedding,
-            limit=limit * 2 if latest_only else limit,  # Get more for filtering
+            limit=limit,  # No need to get extra - Qdrant filters directly
             score_threshold=score_threshold,
             filter_conditions=filter_conditions,
+            latest_only=latest_only,  # Filter in Qdrant, not Python
         )
 
         # Retrieve full state objects from database
@@ -106,15 +126,9 @@ class RetrievalService:
             )
             states = {state.id: state for state in result.scalars().all()}
 
-        # Filter to latest states if requested
-        if latest_only:
-            latest_states = await self._filter_to_latest_per_topic(candidates, states)
-        else:
-            latest_states = candidates
-
-        # Create retrieval results
+        # Create retrieval results (no filtering needed - Qdrant already filtered!)
         results = []
-        for candidate in latest_states[:limit]:
+        for candidate in candidates:
             state_id = (
                 candidate["id"] if isinstance(candidate["id"], UUID) else UUID(candidate["id"])
             )
@@ -185,20 +199,22 @@ class RetrievalService:
                 latest_only=True,
             )
 
+        # Get total states count for dynamic limit
+        total_states = await self.memory_service.count_states(latest_only=False)
+        graph_limit = total_states if total_states > 0 else 1000
+
         # Enhance each match with graph traversal
         enhanced_results = []
         for match in initial_matches:
-            print(f"[RetrievalService] Enhancing match: {match.state.topic} (id={match.state.id})")
-            # Get connected states via graph traversal
+            logger.info(f"Enhancing match: {match.state.topic} (id={match.state.id})")
+            # Get connected states via graph traversal (use dynamic limit based on DB size)
             related_states = await get_related_memories(
                 state_id=match.state.id,
                 relationship_types=relationship_types,
                 max_depth=depth,
-                limit=50,  # Get more related states
+                limit=graph_limit,  # Dynamic limit based on total states in DB
             )
-            print(
-                f"[RetrievalService] Found {len(related_states)} related states from Neo4j for {match.state.topic}"
-            )
+            logger.info(f"Found {len(related_states)} related states from Neo4j for {match.state.topic}")
 
             # Get historical context from trace
             historical_context = []
@@ -218,9 +234,7 @@ class RetrievalService:
                     historical_context=historical_context,
                 )
             )
-            print(
-                f"[RetrievalService] Enhanced result created with {len(related_states)} related states"
-            )
+            logger.info(f"Enhanced result created with {len(related_states)} related states")
 
         return enhanced_results
 

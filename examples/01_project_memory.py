@@ -31,7 +31,7 @@ async def main():
 
     # Initialize client
     print("📡 Connecting to TracingRAG API...")
-    async with AsyncTracingRAGClient("http://localhost:8000") as client:
+    async with AsyncTracingRAGClient("http://localhost:8000", timeout=120.0) as client:
         # Check health
         health = await client.health()
         if health["status"] != "healthy":

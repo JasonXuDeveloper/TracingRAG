@@ -23,13 +23,13 @@ class TestRelationshipType:
 
     def test_relationship_type_values(self):
         """Test relationship type string values"""
-        assert RelationshipType.EVOLVED_TO.value == "evolved_to"
-        assert RelationshipType.RELATES_TO.value == "relates_to"
-        assert RelationshipType.CAUSES.value == "causes"
+        assert RelationshipType.EVOLVED_TO.value == "EVOLVED_TO"
+        assert RelationshipType.RELATES_TO.value == "RELATES_TO"
+        assert RelationshipType.CAUSES.value == "CAUSES"
 
     def test_relationship_type_from_string(self):
         """Test creating relationship type from string"""
-        rel_type = RelationshipType("relates_to")
+        rel_type = RelationshipType("RELATES_TO")
         assert rel_type == RelationshipType.RELATES_TO
 
 

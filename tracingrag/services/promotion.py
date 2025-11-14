@@ -681,6 +681,7 @@ Respond with JSON."""
             json_schema=schema,
         )
 
+        response = None
         try:
             response = await self.llm_client.generate(request)
             result = json.loads(response.content, strict=False)
@@ -713,9 +714,11 @@ Respond with JSON."""
                 "confidence": confidence,
             }
         except json.JSONDecodeError as e:
-            raise Exception(f"Failed to parse LLM response as JSON: {e}. Content: {response.content[:500]}")
+            content_preview = response.content[:500] if response else "No response received"
+            raise Exception(f"Failed to parse LLM response as JSON: {e}. Content: {content_preview}")
         except KeyError as e:
-            raise Exception(f"LLM response missing required field: {e}. Content: {response.content[:500]}")
+            content_preview = response.content[:500] if response else "No response received"
+            raise Exception(f"LLM response missing required field: {e}. Content: {content_preview}")
 
     def _get_synthesis_system_prompt(self) -> str:
         """System prompt for content synthesis"""

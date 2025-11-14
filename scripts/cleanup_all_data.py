@@ -1,6 +1,7 @@
 """Cleanup script to list and delete all memory states"""
 
 import asyncio
+import sys
 
 from tracingrag.client import AsyncTracingRAGClient
 
@@ -8,6 +9,9 @@ from tracingrag.client import AsyncTracingRAGClient
 async def main():
     """List and delete all memory states"""
     client = AsyncTracingRAGClient("http://localhost:8000")
+
+    # Check if --force flag is provided
+    force_delete = "--force" in sys.argv or "-f" in sys.argv
 
     print("=" * 70)
     print("📋 Listing all memory states...")
@@ -39,11 +43,14 @@ async def main():
     print("\n" + "=" * 70)
     print("⚠️  WARNING: About to delete ALL memory states!")
     print("=" * 70)
-    response = input(f"\nDelete all {len(memories)} memories? (yes/no): ")
 
-    if response.lower() != "yes":
-        print("❌ Deletion cancelled.")
-        return
+    if not force_delete:
+        response = input(f"\nDelete all {len(memories)} memories? (yes/no): ")
+        if response.lower() != "yes":
+            print("❌ Deletion cancelled.")
+            return
+    else:
+        print(f"\n🚀 Force mode: Deleting all {len(memories)} memories...")
 
     # Delete all memories
     print("\n🗑️  Deleting all memories...")

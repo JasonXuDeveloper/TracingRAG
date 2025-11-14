@@ -1,5 +1,6 @@
 """Embedding service using sentence-transformers for vector generation with OpenAI fallback"""
 
+
 import asyncio
 from typing import Any
 
@@ -41,9 +42,7 @@ def get_openai_client() -> Any:
                 _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
             except ImportError:
                 _use_openai = False
-                print(
-                    "Warning: openai package not installed. Install with 'pip install openai' to use OpenAI embeddings."
-                )
+                logger.warning("Warning: openai package not installed. Install with 'pip install openai' to use OpenAI embeddings.")
     return _openai_client
 
 
@@ -69,7 +68,7 @@ def get_embedding_model() -> SentenceTransformer | None:
                 device=device,
             )
         except Exception as e:
-            print(f"Warning: Failed to load {settings.embedding_model}: {e}")
+            logger.error(f"Warning: Failed to load {settings.embedding_model}: {e}")
             # Fallback to OpenAI if local model fails
             if settings.openai_api_key:
                 get_openai_client()

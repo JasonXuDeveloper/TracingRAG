@@ -90,13 +90,15 @@ class Settings(BaseSettings):
 
     # Relationship Management
     intelligent_relationship_updates: bool = True
-    relationship_update_similarity_threshold: float = 0.3  # Min similarity for candidates
+    relationship_update_similarity_threshold: float = 0.4  # Min similarity for candidates (higher = more selective)
     relationship_update_llm_batch_size: int = 30  # Batch size for LLM processing
 
-    # Cascading Evolution (evolve related topics when new memory is created)
+    # Cascading Evolution (single-level evolution of related topics when new memory is created)
+    # Note: Only evolves directly related topics (no multi-level cascade)
+    # Relationship propagation is handled by RelationshipManager
     enable_cascading_evolution: bool = True
     cascading_evolution_similarity_threshold: float = 0.4  # Min similarity for evolution candidates (higher = more selective)
-    cascading_evolution_max_topics: int = 10  # Max topics to evolve per new memory
+    cascading_evolution_max_topics: int = 10  # Max topics to analyze per new memory (LLM will decide which to evolve)
 
     # Agent Configuration
     agent_max_iterations: int = 10
