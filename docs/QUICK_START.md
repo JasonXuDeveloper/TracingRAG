@@ -4,11 +4,13 @@ This guide will help you get TracingRAG up and running in under 10 minutes.
 
 ## Prerequisites
 
-- **Python 3.11, 3.12, or 3.13** (Python 3.14+ not yet supported)
+- **Python 3.11+** (including Python 3.14)
+  - **For Python 3.14+**: You'll need build tools installed (no pre-built wheels for `greenlet` yet):
+    - macOS: `xcode-select --install`
+    - Ubuntu/Debian: `sudo apt install build-essential python3-dev`
+  - **Recommended**: Python 3.11-3.13 for fastest installation
 - Docker and Docker Compose
 - 4GB+ RAM available for services
-
-**Important:** If you're on Python 3.14+, please use Python 3.11-3.13 instead. Some dependencies like `greenlet` (required for async database operations) don't have pre-built wheels for Python 3.14 yet.
 
 ## Step 1: Clone and Install
 
@@ -20,9 +22,15 @@ cd TracingRAG
 # Install Poetry (if not already installed)
 curl -sSL https://install.python-poetry.org | python3 -
 
+# (Optional) Select specific Python version if you have multiple installed
+poetry env use python3.11   # Or python3.12, python3.13, python3.14
+poetry env info             # Verify which Python is being used
+
 # Install dependencies
 poetry install
 ```
+
+**Tip:** Poetry automatically picks a compatible Python version, but you can specify one explicitly with `poetry env use python3.XX`.
 
 ## Step 2: Configure Environment
 

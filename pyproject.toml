@@ -8,7 +8,7 @@ license = "MIT"
 packages = [{include = "tracingrag"}]
 
 [tool.poetry.dependencies]
-python = ">=3.11,<3.14"  # greenlet and other async deps may not support 3.14+ yet
+python = "^3.11"  # Python 3.14+ requires C compiler for greenlet (no pre-built wheels yet)
 # API Framework
 fastapi = "^0.115.0"
 uvicorn = {extras = ["standard"], version = "^0.32.0"}
