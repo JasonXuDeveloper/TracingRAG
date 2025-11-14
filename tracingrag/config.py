@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     query_analyzer_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For query analysis
     planner_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For agent query planning
     manager_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For agent memory management
+    auto_link_model: str = "anthropic/claude-3-haiku"  # For auto-linking memory relationships
 
     # Embedding Configuration
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"

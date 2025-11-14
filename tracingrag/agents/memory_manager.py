@@ -147,7 +147,7 @@ Respond with your analysis."""
             context="",
             model=self.manager_model,
             temperature=0.0,
-            max_tokens=500,
+            max_tokens=4000,  # Generous limit to prevent truncation while keeping costs reasonable
             json_schema=analysis_schema,
             metadata={"task": "promotion_analysis"},
         )

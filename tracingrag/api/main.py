@@ -101,6 +101,7 @@ async def lifespan(app: FastAPI):
     print(f"  Query Analyzer Model:  {settings.query_analyzer_model}")
     print(f"  Planner Model:         {settings.planner_model}")
     print(f"  Manager Model:         {settings.manager_model}")
+    print(f"  Auto-Link Model:       {settings.auto_link_model}")
     print("="*70)
 
     if settings.auto_promotion_enabled:
@@ -398,6 +399,45 @@ async def get_trace_history(topic: str, limit: int = 100):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get trace history: {str(e)}",
+        )
+
+
+@app.delete("/api/v1/memories/{memory_id}", tags=["Memory"])
+async def delete_memory(memory_id: str):
+    """Delete a memory state from all storage layers (PostgreSQL, Qdrant, Neo4j)"""
+    try:
+        from uuid import UUID
+
+        # Parse UUID
+        try:
+            state_id = UUID(memory_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid UUID format: {memory_id}",
+            )
+
+        # Delete from all storage layers
+        deleted = await memory_service.delete_memory_state(state_id)
+
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Memory state not found: {memory_id}",
+            )
+
+        return {
+            "success": True,
+            "message": f"Memory state deleted successfully: {memory_id}",
+            "id": memory_id,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete memory: {str(e)}",
         )
 
 

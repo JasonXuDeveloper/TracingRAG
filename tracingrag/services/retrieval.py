@@ -159,6 +159,7 @@ class RetrievalService:
         # Enhance each match with graph traversal
         enhanced_results = []
         for match in initial_matches:
+            print(f"[RetrievalService] Enhancing match: {match.state.topic} (id={match.state.id})")
             # Get connected states via graph traversal
             related_states = await get_related_memories(
                 state_id=match.state.id,
@@ -166,6 +167,7 @@ class RetrievalService:
                 max_depth=depth,
                 limit=50,  # Get more related states
             )
+            print(f"[RetrievalService] Found {len(related_states)} related states from Neo4j for {match.state.topic}")
 
             # Get historical context from trace
             historical_context = []
@@ -185,6 +187,7 @@ class RetrievalService:
                     historical_context=historical_context,
                 )
             )
+            print(f"[RetrievalService] Enhanced result created with {len(related_states)} related states")
 
         return enhanced_results
 

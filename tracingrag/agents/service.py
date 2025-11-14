@@ -1,5 +1,6 @@
 """Agent service for orchestrating intelligent query processing"""
 
+import asyncio
 import time
 
 from tracingrag.agents.memory_manager import MemoryManagerAgent
@@ -65,17 +66,45 @@ class AgentService:
             self._memory_manager = MemoryManagerAgent(llm_client=self.llm_client)
         return self._memory_manager
 
-    async def query_with_agent(self, query: str, max_iterations: int = 3) -> AgentResult:
+    async def query_with_agent(
+        self, query: str, max_iterations: int = 3, timeout: int | None = None
+    ) -> AgentResult:
         """
         Process query using agents with planning and execution
 
         Args:
             query: User query
             max_iterations: Maximum replanning iterations
+            timeout: Timeout in seconds (uses settings.agent_timeout_seconds if None)
 
         Returns:
             Agent result with answer and reasoning
+
+        Raises:
+            asyncio.TimeoutError: If query exceeds timeout
         """
+        timeout = timeout or settings.agent_timeout_seconds
+
+        try:
+            return await asyncio.wait_for(
+                self._query_with_agent_impl(query, max_iterations), timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            # Return partial result on timeout
+            return AgentResult(
+                query=query,
+                answer=f"Query timed out after {timeout} seconds. Please try with a simpler query or increase the timeout.",
+                reasoning_steps=[],
+                sources=[],
+                confidence=0.0,
+                plan_used=None,
+                replanning_count=0,
+                total_time_ms=timeout * 1000,
+                metadata={"error": "timeout", "timeout_seconds": timeout},
+            )
+
+    async def _query_with_agent_impl(self, query: str, max_iterations: int) -> AgentResult:
+        """Internal implementation of query_with_agent (separated for timeout handling)"""
         start_time = time.time()
 
         # Initialize agent state

@@ -137,7 +137,7 @@ class QueryAnalyzer:
             context="",  # No context needed for analysis
             model=self.default_model,  # Use configurable model (cheap/free recommended)
             temperature=0.0,  # Deterministic for classification
-            max_tokens=500,  # Short response
+            max_tokens=4000,  # Generous limit to prevent truncation while keeping costs reasonable
             json_schema=json_schema,  # Use JSON schema for strict structured output
             metadata={"task": "query_analysis"},
         )

@@ -1,7 +1,6 @@
 """Embedding service using sentence-transformers for vector generation with OpenAI fallback"""
 
 import asyncio
-from functools import lru_cache
 from typing import Any
 
 import torch
@@ -48,7 +47,6 @@ def get_openai_client() -> Any:
     return _openai_client
 
 
-@lru_cache(maxsize=1)
 def get_embedding_model() -> SentenceTransformer | None:
     """Get or create the embedding model (cached singleton)
 

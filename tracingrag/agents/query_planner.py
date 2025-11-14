@@ -154,7 +154,7 @@ Create a step-by-step retrieval plan."""
             context="",
             model=self.planner_model,
             temperature=0.0,  # Deterministic planning
-            max_tokens=1000,
+            max_tokens=4000,  # Generous limit to prevent truncation while keeping costs reasonable
             json_schema=plan_schema,
             metadata={"task": "retrieval_planning"},
         )
@@ -255,13 +255,31 @@ Create a step-by-step retrieval plan."""
         Returns:
             Tuple of (should_replan, reason)
         """
-        # Simple heuristics for now
-        results_count = len(current_results.get("retrieved_states", []))
+        retrieved_states = current_results.get("retrieved_states", [])
+        results_count = len(retrieved_states)
 
+        # No results - definitely need to replan
         if results_count == 0 and attempt < 3:
             return True, "No results retrieved, need different strategy"
 
-        if results_count < 3 and attempt < 2:
+        # Check quality of results (if available)
+        if results_count > 0:
+            # Extract scores if available
+            scores = [state.get("score", 0.0) for state in retrieved_states if "score" in state]
+            if scores:
+                avg_score = sum(scores) / len(scores)
+                max_score = max(scores)
+
+                # If we have high-quality results (score > 0.6), no need to replan
+                if max_score > 0.6:
+                    return False, f"High quality results found (max score: {max_score:.2f})"
+
+                # If results are mediocre and we have few, try again
+                if results_count < 3 and avg_score < 0.5 and attempt < 2:
+                    return True, f"Low quality results (avg: {avg_score:.2f}), try broader search"
+
+        # Few results with unknown quality - replan once
+        if results_count < 3 and attempt < 1:
             return True, "Too few results, try broader search"
 
         return False, "Sufficient results or max attempts reached"

@@ -88,7 +88,7 @@ class LLMClient:
         headers = {}
         if "openrouter.ai" in self.base_url:
             headers["HTTP-Referer"] = request.metadata.get(
-                "referer", "https://github.com/TracingRAG"
+                "referer", "https://github.com/JasonXuDeveloper/TracingRAG"
             )
             headers["X-Title"] = request.metadata.get("title", "TracingRAG")
 
@@ -101,6 +101,16 @@ class LLMClient:
         if response.status_code == 429:
             error_body = response.text
             raise Exception(f"Rate limit (429) - Response: {error_body}")
+
+        if response.status_code == 400:
+            error_body = response.text
+            # Check if it's a JSON schema issue
+            if request.json_schema and ("json_schema" in error_body.lower() or "response_format" in error_body.lower()):
+                raise Exception(
+                    f"Model {request.model} does not support JSON schema structured output. "
+                    f"Error: {error_body}"
+                )
+            raise Exception(f"Bad request (400) - Model: {request.model} - Response: {error_body}")
 
         response.raise_for_status()
 
