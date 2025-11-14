@@ -30,8 +30,15 @@ class ContextBuilder:
             use_llm_analysis: Whether to use LLM for query analysis (vs rules)
         """
         self.retrieval_service = retrieval_service or RetrievalService()
-        self.query_analyzer = query_analyzer or get_query_analyzer()
+        self._query_analyzer = query_analyzer  # Store provided analyzer or None
         self.use_llm_analysis = use_llm_analysis
+
+    @property
+    def query_analyzer(self) -> QueryAnalyzer:
+        """Lazy-load query analyzer only when needed"""
+        if self._query_analyzer is None:
+            self._query_analyzer = get_query_analyzer()
+        return self._query_analyzer
 
     async def build_context(
         self,
