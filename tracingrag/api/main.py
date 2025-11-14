@@ -46,17 +46,54 @@ async def lifespan(app: FastAPI):
 
     # Startup
     print("Initializing TracingRAG services...")
+
+    # Initialize database
+    from tracingrag.storage.database import init_db
+    await init_db()
+    print("✓ Database initialized")
+
+    # Initialize Qdrant collection
+    try:
+        from tracingrag.services.embedding import get_embedding_dimension
+        from tracingrag.storage.qdrant import init_qdrant_collection
+
+        embedding_dim = await get_embedding_dimension()
+        await init_qdrant_collection(
+            collection_name="memory_states",
+            vector_size=embedding_dim,
+        )
+        print(f"✓ Qdrant collection initialized (dimension: {embedding_dim})")
+    except Exception as e:
+        print(f"⚠ Qdrant initialization failed (will retry on first use): {e}")
+
+    # Initialize Neo4j schema (indexes and constraints)
+    try:
+        from tracingrag.storage.neo4j_client import init_neo4j_schema
+
+        await init_neo4j_schema()
+        print("✓ Neo4j schema initialized")
+    except Exception as e:
+        print(f"⚠ Neo4j initialization failed (optional): {e}")
+
+    # Initialize services (with lazy loading, no LLM client needed)
     memory_service = MemoryService()
     rag_service = RAGService()
     agent_service = AgentService()
     promotion_service = PromotionService()
-    print("TracingRAG services initialized successfully")
+    print("✓ TracingRAG services initialized successfully")
 
     yield
 
     # Shutdown
     print("Shutting down TracingRAG services...")
-    # Close any connections if needed
+    from tracingrag.storage.database import close_db
+    from tracingrag.storage.neo4j_client import close_neo4j
+    from tracingrag.storage.qdrant import close_qdrant
+
+    await close_db()
+    await close_qdrant()
+    await close_neo4j()
+    print("✓ Connections closed")
 
 
 # Create FastAPI app
