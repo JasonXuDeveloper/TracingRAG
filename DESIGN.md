@@ -309,14 +309,24 @@ FastAPI REST API (Async)
 - Can co-locate with main app data
 
 ### Embedding Models
-**Sentence Transformers (Local)**
-- `all-MiniLM-L6-v2` - Fast, good for development
-- `all-mpnet-base-v2` - Better quality
-- `e5-large-v2` - State-of-the-art open source
 
-**OpenAI (API)**
-- `text-embedding-3-large` - Highest quality
-- `text-embedding-3-small` - Cost effective
+**Current Implementation:**
+TracingRAG supports both local and cloud-based embeddings with automatic fallback.
+
+**Sentence Transformers (Local, Free)**
+- `all-mpnet-base-v2` (default) - English, 768 dim, good quality
+- `paraphrase-multilingual-mpnet-base-v2` - 50+ languages, 768 dim
+- `all-MiniLM-L6-v2` - English, 384 dim, faster
+
+**OpenAI Embeddings (API, Best Multilingual)**
+- `text-embedding-3-small` - 100+ languages, 1536 dim, cost-effective
+- `text-embedding-3-large` - 100+ languages, 3072 dim, highest quality
+
+**Features:**
+- Automatic OpenAI fallback if `OPENAI_API_KEY` is set
+- If local model fails to load, gracefully falls back to OpenAI
+- Supports both English-only and multilingual deployments
+- Configurable via environment variables
 
 ### LLM Integration
 **OpenRouter API (Recommended)**

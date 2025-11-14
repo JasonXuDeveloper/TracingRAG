@@ -89,6 +89,64 @@ Services resource usage:
 - Redis: ~100MB RAM
 - TracingRAG API: ~1-2GB RAM (for embedding model)
 
+### What embedding models are supported?
+
+TracingRAG supports both local and cloud-based embeddings:
+
+**Local Models (Free, runs on your machine):**
+- `sentence-transformers/all-mpnet-base-v2` (default)
+  - English only, 768 dimensions
+  - Good quality, moderate speed
+  - ~400MB model download
+- `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`
+  - **50+ languages** including Chinese, Japanese, Korean, Arabic, etc.
+  - 768 dimensions
+  - ~1GB model download
+
+**OpenAI Embeddings (API costs, best multilingual):**
+- `text-embedding-3-small`
+  - **100+ languages** with high quality
+  - 1536 dimensions
+  - $0.02 per 1M tokens
+- `text-embedding-3-large`
+  - **100+ languages** with highest quality
+  - 3072 dimensions
+  - $0.13 per 1M tokens
+
+### How do I configure embeddings?
+
+**Option 1: Local embeddings (default)**
+```env
+# English only
+EMBEDDING_MODEL=sentence-transformers/all-mpnet-base-v2
+
+# OR for multilingual (50+ languages)
+EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-mpnet-base-v2
+```
+
+**Option 2: OpenAI embeddings (100+ languages)**
+```env
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+```
+
+If `OPENAI_API_KEY` is set, TracingRAG will use OpenAI embeddings. If the local model fails to load, it automatically falls back to OpenAI (if configured).
+
+### Does TracingRAG support multilingual content?
+
+Yes! TracingRAG fully supports multilingual content:
+
+**For multilingual support, use:**
+1. **OpenAI embeddings** (best, 100+ languages) - Set `OPENAI_API_KEY` in `.env`
+2. **Multilingual local model** (good, 50+ languages) - Set `EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-mpnet-base-v2`
+
+**LLM responses:** TracingRAG uses OpenRouter for LLM access, which supports multilingual queries and responses through models like Claude and GPT-4.
+
+**Important:**
+- All content is stored in its original language (no translation)
+- Embeddings handle semantic similarity across languages
+- LLMs can analyze and synthesize in any language they support
+
 ## Usage & Features
 
 ### How do I create a memory?
