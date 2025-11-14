@@ -80,7 +80,7 @@ jobs:
       - name: Run tests
         env:
           OPENROUTER_API_KEY: test_key_for_ci
-          DATABASE_URL: sqlite+aiosqlite:///:memory:
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
         run: poetry run pytest -v --cov=tracingrag --cov-report=xml --cov-report=term
 
       - name: Upload coverage reports

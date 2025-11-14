@@ -37,12 +37,19 @@ class RAGService:
             max_context_tokens: Maximum tokens for context window
             default_system_prompt: Default system prompt for LLM
         """
-        self.llm_client = llm_client or get_llm_client()
+        self._llm_client = llm_client  # Store provided client or None
         self.retrieval_service = retrieval_service or RetrievalService()
         self.context_builder = context_builder or ContextBuilder(self.retrieval_service)
         self.max_context_tokens = max_context_tokens
 
         self.default_system_prompt = default_system_prompt or self._get_default_system_prompt()
+
+    @property
+    def llm_client(self) -> LLMClient:
+        """Lazy-load LLM client only when needed"""
+        if self._llm_client is None:
+            self._llm_client = get_llm_client()
+        return self._llm_client
 
     async def query(
         self,
