@@ -54,9 +54,7 @@ class AgentService:
     def query_planner(self) -> QueryPlannerAgent:
         """Lazy-load query planner only when needed"""
         if self._query_planner is None:
-            self._query_planner = QueryPlannerAgent(
-                llm_client=self.llm_client, tools=self.tools
-            )
+            self._query_planner = QueryPlannerAgent(llm_client=self.llm_client, tools=self.tools)
         return self._query_planner
 
     @property
@@ -89,7 +87,7 @@ class AgentService:
             return await asyncio.wait_for(
                 self._query_with_agent_impl(query, max_iterations), timeout=timeout
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # Return partial result on timeout
             return AgentResult(
                 query=query,

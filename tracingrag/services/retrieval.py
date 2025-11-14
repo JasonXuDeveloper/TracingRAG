@@ -115,7 +115,9 @@ class RetrievalService:
         # Create retrieval results
         results = []
         for candidate in latest_states[:limit]:
-            state_id = candidate["id"] if isinstance(candidate["id"], UUID) else UUID(candidate["id"])
+            state_id = (
+                candidate["id"] if isinstance(candidate["id"], UUID) else UUID(candidate["id"])
+            )
             if state_id in states:
                 results.append(
                     RetrievalResult(
@@ -167,7 +169,9 @@ class RetrievalService:
                 max_depth=depth,
                 limit=50,  # Get more related states
             )
-            print(f"[RetrievalService] Found {len(related_states)} related states from Neo4j for {match.state.topic}")
+            print(
+                f"[RetrievalService] Found {len(related_states)} related states from Neo4j for {match.state.topic}"
+            )
 
             # Get historical context from trace
             historical_context = []
@@ -187,7 +191,9 @@ class RetrievalService:
                     historical_context=historical_context,
                 )
             )
-            print(f"[RetrievalService] Enhanced result created with {len(related_states)} related states")
+            print(
+                f"[RetrievalService] Enhanced result created with {len(related_states)} related states"
+            )
 
         return enhanced_results
 
@@ -408,9 +414,7 @@ class RetrievalService:
         """
         async with get_session() as session:
             # Get latest state mappings for all topics
-            topics = list(
-                {states[c["id"]].topic for c in candidates if c["id"] in states}
-            )
+            topics = list({states[c["id"]].topic for c in candidates if c["id"] in states})
 
             result = await session.execute(
                 select(TopicLatestStateDB).where(TopicLatestStateDB.topic.in_(topics))
@@ -422,7 +426,9 @@ class RetrievalService:
         seen_topics = set()
 
         for candidate in candidates:
-            state_id = candidate["id"] if isinstance(candidate["id"], UUID) else UUID(candidate["id"])
+            state_id = (
+                candidate["id"] if isinstance(candidate["id"], UUID) else UUID(candidate["id"])
+            )
             if state_id not in states:
                 continue
 

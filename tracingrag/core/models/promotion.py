@@ -220,6 +220,7 @@ class PromotionPolicy(BaseModel):
         """Use settings if not provided"""
         if v is None:
             from tracingrag.config import settings
+
             return settings.evaluation_model
         return v
 

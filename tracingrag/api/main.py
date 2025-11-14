@@ -49,6 +49,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize database
     from tracingrag.storage.database import init_db
+
     await init_db()
     print("✓ Database initialized")
 
@@ -91,9 +92,9 @@ async def lifespan(app: FastAPI):
     promotion_service = PromotionService(policy=promotion_policy)
 
     # Print model configuration
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("🤖 LLM Model Configuration:")
-    print("="*70)
+    print("=" * 70)
     print(f"  Main Query Model:      {settings.default_llm_model}")
     print(f"  Fallback Model:        {settings.fallback_llm_model}")
     print(f"  Analysis Model:        {settings.analysis_model}")
@@ -102,7 +103,7 @@ async def lifespan(app: FastAPI):
     print(f"  Planner Model:         {settings.planner_model}")
     print(f"  Manager Model:         {settings.manager_model}")
     print(f"  Auto-Link Model:       {settings.auto_link_model}")
-    print("="*70)
+    print("=" * 70)
 
     if settings.auto_promotion_enabled:
         print("✓ TracingRAG services initialized (Auto-promotion: ENABLED)")
@@ -464,7 +465,10 @@ async def query_rag(request: QueryRequest):
             # Generate reasoning summary from steps
             reasoning = None
             if result.reasoning_steps:
-                step_summaries = [f"{step.action.value}: {step.result or 'executed'}" for step in result.reasoning_steps]
+                step_summaries = [
+                    f"{step.action.value}: {step.result or 'executed'}"
+                    for step in result.reasoning_steps
+                ]
                 reasoning = " → ".join(step_summaries)
 
             return QueryResponse(
@@ -494,6 +498,7 @@ async def query_rag(request: QueryRequest):
 
     except Exception as e:
         import traceback
+
         error_trace = traceback.format_exc()
         print(f"Query error traceback:\n{error_trace}")
         raise HTTPException(

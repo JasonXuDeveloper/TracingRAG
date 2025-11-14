@@ -91,7 +91,9 @@ class AgentTools:
         start_time = time.time()
 
         try:
-            print(f"[AgentTools] vector_search called with: query='{query}', limit={limit}, score_threshold={score_threshold}")
+            print(
+                f"[AgentTools] vector_search called with: query='{query}', limit={limit}, score_threshold={score_threshold}"
+            )
 
             # Use graph-enhanced retrieval to include related memories
             results = await self.retrieval_service.graph_enhanced_retrieval(
@@ -110,40 +112,54 @@ class AgentTools:
                 # Add the initial match
                 state_id_str = str(result.state.id)
                 if state_id_str not in seen_ids:
-                    all_states.append({
-                        "id": state_id_str,
-                        "topic": result.state.topic,
-                        "content": result.state.content,
-                        "score": result.score,
-                        "version": result.state.version,
-                        "retrieval_type": "semantic",
-                    })
+                    all_states.append(
+                        {
+                            "id": state_id_str,
+                            "topic": result.state.topic,
+                            "content": result.state.content,
+                            "score": result.score,
+                            "version": result.state.version,
+                            "retrieval_type": "semantic",
+                        }
+                    )
                     seen_ids.add(state_id_str)
 
                 # Add related states from graph
                 if result.related_states:
-                    print(f"[AgentTools] Found {len(result.related_states)} related states for {result.state.topic}")
+                    print(
+                        f"[AgentTools] Found {len(result.related_states)} related states for {result.state.topic}"
+                    )
                     for related_info in result.related_states:
                         related_id_str = related_info.get("memory", {}).get("id")
                         if related_id_str and related_id_str not in seen_ids:
                             # Fetch the full state
                             try:
                                 from uuid import UUID
+
                                 related_id = UUID(related_id_str)
-                                related_state = await self.memory_service.get_memory_state(related_id)
+                                related_state = await self.memory_service.get_memory_state(
+                                    related_id
+                                )
 
                                 if related_state:
-                                    all_states.append({
-                                        "id": str(related_state.id),
-                                        "topic": related_state.topic,
-                                        "content": related_state.content,
-                                        "score": result.score * 0.8,  # Slightly lower score for related
-                                        "version": related_state.version,
-                                        "retrieval_type": "graph_related",
-                                        "related_via": related_info.get("relationship_path", []),
-                                    })
+                                    all_states.append(
+                                        {
+                                            "id": str(related_state.id),
+                                            "topic": related_state.topic,
+                                            "content": related_state.content,
+                                            "score": result.score
+                                            * 0.8,  # Slightly lower score for related
+                                            "version": related_state.version,
+                                            "retrieval_type": "graph_related",
+                                            "related_via": related_info.get(
+                                                "relationship_path", []
+                                            ),
+                                        }
+                                    )
                                     seen_ids.add(related_id_str)
-                                    print(f"[AgentTools] Added related state: {related_state.topic}")
+                                    print(
+                                        f"[AgentTools] Added related state: {related_state.topic}"
+                                    )
                             except Exception as e:
                                 print(f"[AgentTools] Failed to fetch related state: {e}")
 

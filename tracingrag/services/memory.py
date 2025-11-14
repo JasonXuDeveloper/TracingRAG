@@ -281,9 +281,10 @@ class MemoryService:
         Returns:
             True if deleted successfully, False if not found
         """
+        from sqlalchemy import delete
+
         from tracingrag.storage.neo4j_client import delete_memory_node
         from tracingrag.storage.qdrant import delete_embedding
-        from sqlalchemy import delete
 
         async with get_session() as session:
             # Get the state first to check if it exists
@@ -320,7 +321,9 @@ class MemoryService:
 
             await session.commit()
 
-            print(f"[MemoryService] Successfully deleted memory state: {state_id} (topic: {state.topic})")
+            print(
+                f"[MemoryService] Successfully deleted memory state: {state_id} (topic: {state.topic})"
+            )
             return True
 
     async def _get_next_version(self, session: AsyncSession, topic: str) -> int:
@@ -393,10 +396,11 @@ class MemoryService:
         Returns:
             List of (related_state_id, relationship_type, confidence) tuples
         """
-        from tracingrag.services.retrieval import RetrievalService
-        from tracingrag.services.llm import get_llm_client
-        from tracingrag.core.models.rag import LLMRequest
         import json
+
+        from tracingrag.core.models.rag import LLMRequest
+        from tracingrag.services.llm import get_llm_client
+        from tracingrag.services.retrieval import RetrievalService
 
         # Stage 1: Find similar memories using embeddings (fast)
         retrieval_service = RetrievalService()
@@ -408,13 +412,17 @@ class MemoryService:
         )
 
         # Filter out self and same topic
-        candidates = [c for c in candidates if c.state.id != new_state.id and c.state.topic != new_state.topic]
+        candidates = [
+            c for c in candidates if c.state.id != new_state.id and c.state.topic != new_state.topic
+        ]
 
         if not candidates:
             print(f"[AutoLink] No similar candidates found for {new_state.topic}")
             return []
 
-        print(f"[AutoLink] Found {len(candidates)} candidates for {new_state.topic}, analyzing with LLM...")
+        print(
+            f"[AutoLink] Found {len(candidates)} candidates for {new_state.topic}, analyzing with LLM..."
+        )
 
         # Stage 2: Use LLM to analyze which ones are truly related
         # Prepare context
@@ -425,7 +433,7 @@ class MemoryService:
         linked_memories = []
 
         for i in range(0, len(candidates), batch_size):
-            batch = candidates[i:i+batch_size]
+            batch = candidates[i : i + batch_size]
 
             # Build candidate descriptions
             candidate_descriptions = []
@@ -494,7 +502,9 @@ Only include candidates with confidence >= 0.7."""
                             relationship_type = item["relationship_type"]
                             confidence = item["confidence"]
 
-                            print(f"[AutoLink] Linking {new_state.topic} -> {related_state.topic} ({relationship_type}, conf={confidence:.2f})")
+                            print(
+                                f"[AutoLink] Linking {new_state.topic} -> {related_state.topic} ({relationship_type}, conf={confidence:.2f})"
+                            )
 
                             # Create relationship in Neo4j (MemoryState to MemoryState)
                             await create_evolution_edge(
@@ -508,7 +518,9 @@ Only include candidates with confidence >= 0.7."""
                                 },
                             )
 
-                            linked_memories.append((related_state.id, relationship_type, confidence))
+                            linked_memories.append(
+                                (related_state.id, relationship_type, confidence)
+                            )
 
                 except json.JSONDecodeError as e:
                     print(f"[AutoLink] Failed to parse LLM response: {e}")

@@ -105,7 +105,9 @@ class LLMClient:
         if response.status_code == 400:
             error_body = response.text
             # Check if it's a JSON schema issue
-            if request.json_schema and ("json_schema" in error_body.lower() or "response_format" in error_body.lower()):
+            if request.json_schema and (
+                "json_schema" in error_body.lower() or "response_format" in error_body.lower()
+            ):
                 raise Exception(
                     f"Model {request.model} does not support JSON schema structured output. "
                     f"Error: {error_body}"

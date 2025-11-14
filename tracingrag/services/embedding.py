@@ -97,9 +97,7 @@ async def generate_embedding(text: str) -> list[float]:
     # Use OpenAI if configured
     if model is None and _use_openai:
         client = get_openai_client()
-        response = await client.embeddings.create(
-            input=text, model=settings.openai_embedding_model
-        )
+        response = await client.embeddings.create(input=text, model=settings.openai_embedding_model)
         return response.data[0].embedding
 
     # Use local model

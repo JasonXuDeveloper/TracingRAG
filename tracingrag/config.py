@@ -35,7 +35,9 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     default_llm_model: str = "anthropic/claude-3.5-sonnet"
     fallback_llm_model: str = "openai/gpt-4-turbo"
-    analysis_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For conflict detection, quality checks
+    analysis_model: str = (
+        "tngtech/deepseek-r1t2-chimera:free"  # For conflict detection, quality checks
+    )
     evaluation_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For promotion evaluation
     query_analyzer_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For query analysis
     planner_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For agent query planning
@@ -104,9 +106,7 @@ class Settings(BaseSettings):
 
     # Security
     secret_key: str = "your-secret-key-here-change-in-production"
-    allowed_origins: str | list[str] = Field(
-        default="http://localhost:3000,http://localhost:8000"
-    )
+    allowed_origins: str | list[str] = Field(default="http://localhost:3000,http://localhost:8000")
     allowed_hosts: str | list[str] = Field(default="*")
 
     @field_validator("allowed_origins", "allowed_hosts", mode="before")
