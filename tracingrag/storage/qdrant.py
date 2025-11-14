@@ -107,6 +107,25 @@ async def upsert_embedding(
     """
     client = get_qdrant_client()
 
+    # Auto-create collection if it doesn't exist
+    try:
+        collections = client.get_collections().collections
+        collection_exists = any(col.name == collection_name for col in collections)
+
+        if not collection_exists:
+            vector_size = len(embedding)
+            await init_qdrant_collection(
+                collection_name=collection_name,
+                vector_size=vector_size,
+            )
+    except Exception as e:
+        # If collection check fails, try to create it
+        vector_size = len(embedding)
+        await init_qdrant_collection(
+            collection_name=collection_name,
+            vector_size=vector_size,
+        )
+
     point = PointStruct(
         id=str(state_id),
         vector=embedding,
