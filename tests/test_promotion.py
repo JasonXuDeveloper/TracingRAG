@@ -164,7 +164,7 @@ class TestPromotionService:
         assert promotion_service is not None
         assert isinstance(promotion_service, PromotionService)
         assert promotion_service.synthesis_model == "anthropic/claude-3.5-sonnet"
-        assert promotion_service.analysis_model == "deepseek/deepseek-chat-v3-0324:free"
+        assert promotion_service.analysis_model == "tngtech/deepseek-r1t2-chimera:free"
 
     def test_build_synthesis_sources(self, promotion_service):
         """Test building synthesis sources from states"""

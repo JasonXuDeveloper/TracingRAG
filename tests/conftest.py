@@ -10,16 +10,19 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 os.environ["OPENROUTER_API_KEY"] = "test_key_for_testing"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
-from tracingrag.storage.database import Base, init_db
+from tracingrag.storage.database import Base, get_engine
 from tracingrag.storage.models import MemoryStateDB
 
 
 @pytest.fixture(scope="session", autouse=True)
-async def initialize_test_db():
-    """Initialize the global test database"""
-    # This will use the DATABASE_URL set at module level
-    await init_db()
+async def initialize_global_db():
+    """Initialize the global database for all tests"""
+    # This ensures the global engine is initialized for tests that use get_session()
+    global_engine = get_engine()
+    async with global_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield
+    await global_engine.dispose()
 
 
 @pytest.fixture(scope="session")
