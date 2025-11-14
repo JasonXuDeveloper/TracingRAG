@@ -7,7 +7,6 @@ summarizes and rolls up memory states at daily, weekly, and monthly intervals.
 import asyncio
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -40,8 +39,12 @@ class ConsolidationConfig(BaseModel):
     monthly_threshold: int = Field(default=4, description="Min weekly summaries for monthly")
 
     daily_schedule_hour: int = Field(default=2, ge=0, le=23, description="Hour to run daily (UTC)")
-    weekly_schedule_day: int = Field(default=6, ge=0, le=6, description="Day to run weekly (0=Monday)")
-    monthly_schedule_day: int = Field(default=1, ge=1, le=28, description="Day of month for monthly")
+    weekly_schedule_day: int = Field(
+        default=6, ge=0, le=6, description="Day to run weekly (0=Monday)"
+    )
+    monthly_schedule_day: int = Field(
+        default=1, ge=1, le=28, description="Day of month for monthly"
+    )
 
     consolidation_model: str = Field(
         default="anthropic/claude-3.5-sonnet",
@@ -109,7 +112,9 @@ class ConsolidationService:
     # Finding Consolidation Candidates
     # ========================================================================
 
-    async def find_daily_candidates(self, date: datetime | None = None) -> list[ConsolidationCandidate]:
+    async def find_daily_candidates(
+        self, date: datetime | None = None
+    ) -> list[ConsolidationCandidate]:
         """Find topics that need daily consolidation
 
         Args:
@@ -176,7 +181,9 @@ class ConsolidationService:
 
         return candidates
 
-    async def find_weekly_candidates(self, date: datetime | None = None) -> list[ConsolidationCandidate]:
+    async def find_weekly_candidates(
+        self, date: datetime | None = None
+    ) -> list[ConsolidationCandidate]:
         """Find topics that need weekly consolidation
 
         Args:
@@ -250,7 +257,9 @@ class ConsolidationService:
 
         return candidates
 
-    async def find_monthly_candidates(self, date: datetime | None = None) -> list[ConsolidationCandidate]:
+    async def find_monthly_candidates(
+        self, date: datetime | None = None
+    ) -> list[ConsolidationCandidate]:
         """Find topics that need monthly consolidation
 
         Args:
@@ -300,7 +309,9 @@ class ConsolidationService:
 
             for row in rows:
                 # Extract base topic
-                base_topic = row.topic.split(":weekly:")[0] if ":weekly:" in row.topic else row.topic
+                base_topic = (
+                    row.topic.split(":weekly:")[0] if ":weekly:" in row.topic else row.topic
+                )
 
                 # Check if monthly summary already exists
                 month_id = f"{date.year}-{date.month:02d}"
@@ -351,9 +362,7 @@ class ConsolidationService:
     # Consolidation Execution
     # ========================================================================
 
-    async def consolidate(
-        self, candidate: ConsolidationCandidate
-    ) -> ConsolidationResult:
+    async def consolidate(self, candidate: ConsolidationCandidate) -> ConsolidationResult:
         """Execute consolidation for a candidate
 
         Args:
@@ -374,7 +383,9 @@ class ConsolidationService:
                 new_topic = f"{candidate.topic}:weekly:{week_id}"
                 summary_tag = "weekly_summary"
             else:  # MONTHLY
-                month_id = f"{candidate.earliest_timestamp.year}-{candidate.earliest_timestamp.month:02d}"
+                month_id = (
+                    f"{candidate.earliest_timestamp.year}-{candidate.earliest_timestamp.month:02d}"
+                )
                 new_topic = f"{candidate.topic}:monthly:{month_id}"
                 summary_tag = "monthly_summary"
 
@@ -450,7 +461,9 @@ class ConsolidationService:
         tasks = [self.consolidate(candidate) for candidate in candidates]
         return await asyncio.gather(*tasks)
 
-    async def run_daily_consolidation(self, date: datetime | None = None) -> list[ConsolidationResult]:
+    async def run_daily_consolidation(
+        self, date: datetime | None = None
+    ) -> list[ConsolidationResult]:
         """Run daily consolidation
 
         Args:
@@ -462,7 +475,9 @@ class ConsolidationService:
         candidates = await self.find_daily_candidates(date)
         return await self.consolidate_batch(candidates)
 
-    async def run_weekly_consolidation(self, date: datetime | None = None) -> list[ConsolidationResult]:
+    async def run_weekly_consolidation(
+        self, date: datetime | None = None
+    ) -> list[ConsolidationResult]:
         """Run weekly consolidation
 
         Args:
@@ -474,7 +489,9 @@ class ConsolidationService:
         candidates = await self.find_weekly_candidates(date)
         return await self.consolidate_batch(candidates)
 
-    async def run_monthly_consolidation(self, date: datetime | None = None) -> list[ConsolidationResult]:
+    async def run_monthly_consolidation(
+        self, date: datetime | None = None
+    ) -> list[ConsolidationResult]:
         """Run monthly consolidation
 
         Args:
@@ -509,9 +526,7 @@ class ConsolidationService:
     # Drill-Down Queries
     # ========================================================================
 
-    async def get_detailed_states(
-        self, consolidated_topic: str
-    ) -> list[MemoryStateDB]:
+    async def get_detailed_states(self, consolidated_topic: str) -> list[MemoryStateDB]:
         """Get detailed states that were consolidated into a summary
 
         Args:

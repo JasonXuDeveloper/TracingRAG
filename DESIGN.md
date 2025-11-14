@@ -262,12 +262,13 @@ class PlanningAgent:
 ### Layer 4: API & Interface
 
 ```
-REST API / GraphQL API
-- Query endpoint
+FastAPI REST API (Async)
+- Query endpoint (standard and agent-based)
 - Memory CRUD endpoints
 - Promotion endpoint
-- Graph exploration endpoint
-- Time-travel queries
+- Promotion candidates endpoint
+- Trace history endpoint
+- Health and metrics endpoints
 ```
 
 ## Tech Stack Recommendations
@@ -331,15 +332,16 @@ REST API / GraphQL API
 - Mixtral 8x7B - Fast, cost effective
 
 ### Agent Framework
-**LangGraph (Recommended)**
-- Built on LangChain
-- Designed for agentic workflows
-- State management built-in
-- Graph-based agent orchestration
+**Custom LLM-based Agents (Implemented)**
+- Direct LLM API integration (OpenRouter/OpenAI)
+- Structured output with JSON schema
+- Query planning with multi-step execution
+- Memory management and promotion agents
+- Lightweight and flexible architecture
 
-**Alternative: AutoGen**
-- Microsoft's multi-agent framework
-- More complex but powerful
+**Future Alternatives to Consider**
+- LangGraph - Graph-based agent orchestration
+- AutoGen - Microsoft's multi-agent framework
 
 ### Observability
 - **Langfuse** - LLM observability and tracing
@@ -1039,11 +1041,11 @@ Drill-down pattern: summary (warm) → daily (cold) → originals (cold)
 - [ ] Context management
 
 ### Phase 5: Agentic Layer (Weeks 9-11)
-- [ ] LangGraph integration
-- [ ] Query planning agent
-- [ ] Memory management agent
-- [ ] Retrieval strategy selection
-- [ ] Multi-step reasoning
+- [x] Custom LLM-based agent framework
+- [x] Query planning agent with LLM-based analysis
+- [x] Memory management agent
+- [x] Retrieval strategy selection
+- [x] Multi-step reasoning with replanning
 
 ### Phase 6: Memory Promotion (Weeks 12-13)
 - [ ] Promotion algorithm

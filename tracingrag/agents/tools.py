@@ -4,10 +4,8 @@ import time
 from typing import Any
 from uuid import UUID
 
-from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, Field
 
-from tracingrag.core.models.memory import MemoryState
 from tracingrag.services.embedding import generate_embedding
 from tracingrag.services.graph import GraphService
 from tracingrag.services.memory import MemoryService
@@ -19,9 +17,7 @@ class VectorSearchInput(BaseModel):
 
     query: str = Field(..., description="Query to search for")
     limit: int = Field(default=10, description="Maximum number of results")
-    score_threshold: float = Field(
-        default=0.5, description="Minimum similarity score"
-    )
+    score_threshold: float = Field(default=0.5, description="Minimum similarity score")
 
 
 class GraphTraversalInput(BaseModel):
@@ -156,8 +152,7 @@ class AgentTools:
                     {
                         "id": str(result.state.id),
                         "topic": result.state.topic,
-                        "content": result.state.content[:200]
-                        + "...",  # Truncate for brevity
+                        "content": result.state.content[:200] + "...",  # Truncate for brevity
                         "score": result.score,
                     }
                     for result in results
@@ -171,9 +166,7 @@ class AgentTools:
                 "duration_ms": (time.time() - start_time) * 1000,
             }
 
-    async def trace_history(
-        self, topic: str, limit: int = 10
-    ) -> dict[str, Any]:
+    async def trace_history(self, topic: str, limit: int = 10) -> dict[str, Any]:
         """
         Get version history for a topic
 
@@ -187,9 +180,7 @@ class AgentTools:
         start_time = time.time()
 
         try:
-            versions = await self.memory_service.get_topic_history(
-                topic=topic, limit=limit
-            )
+            versions = await self.memory_service.get_topic_history(topic=topic, limit=limit)
 
             return {
                 "success": True,

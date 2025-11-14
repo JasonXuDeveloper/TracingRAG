@@ -54,7 +54,7 @@ class TestEmbeddingGeneration:
         embedding2 = await generate_embedding(text)
 
         # Embeddings should be very similar (allowing for floating point precision)
-        for v1, v2 in zip(embedding1, embedding2):
+        for v1, v2 in zip(embedding1, embedding2, strict=False):
             assert abs(v1 - v2) < 1e-6
 
 

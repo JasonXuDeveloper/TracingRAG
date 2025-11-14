@@ -1,7 +1,5 @@
 """Tests for storage module imports and basic functionality"""
 
-import pytest
-
 
 class TestStorageImports:
     """Test that all storage modules can be imported"""

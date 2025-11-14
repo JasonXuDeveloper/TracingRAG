@@ -1,10 +1,13 @@
 """Tests for FastAPI endpoints"""
 
-import pytest
-from fastapi.testclient import TestClient
+import asyncio
 from uuid import uuid4
 
+import pytest
+from fastapi.testclient import TestClient
+
 from tracingrag.api.main import app
+from tracingrag.storage.database import init_db
 
 
 class TestHealthEndpoints:
@@ -12,8 +15,12 @@ class TestHealthEndpoints:
 
     @pytest.fixture
     def client(self):
-        """Create test client"""
-        return TestClient(app)
+        """Create test client with database initialization"""
+        # Initialize database tables before creating client
+        asyncio.run(init_db())
+        # Use context manager to ensure lifespan events trigger
+        with TestClient(app) as client:
+            yield client
 
     def test_root_endpoint(self, client):
         """Test root endpoint"""
@@ -48,8 +55,12 @@ class TestMemoryEndpoints:
 
     @pytest.fixture
     def client(self):
-        """Create test client"""
-        return TestClient(app)
+        """Create test client with database initialization"""
+        # Initialize database tables before creating client
+        asyncio.run(init_db())
+        # Use context manager to ensure lifespan events trigger
+        with TestClient(app) as client:
+            yield client
 
     def test_list_memories(self, client):
         """Test listing memories"""
@@ -80,8 +91,12 @@ class TestQueryEndpoints:
 
     @pytest.fixture
     def client(self):
-        """Create test client"""
-        return TestClient(app)
+        """Create test client with database initialization"""
+        # Initialize database tables before creating client
+        asyncio.run(init_db())
+        # Use context manager to ensure lifespan events trigger
+        with TestClient(app) as client:
+            yield client
 
     def test_query_endpoint_structure(self, client):
         """Test query endpoint returns proper structure"""
@@ -106,8 +121,12 @@ class TestPromotionEndpoints:
 
     @pytest.fixture
     def client(self):
-        """Create test client"""
-        return TestClient(app)
+        """Create test client with database initialization"""
+        # Initialize database tables before creating client
+        asyncio.run(init_db())
+        # Use context manager to ensure lifespan events trigger
+        with TestClient(app) as client:
+            yield client
 
     def test_get_promotion_candidates(self, client):
         """Test getting promotion candidates"""
@@ -135,7 +154,9 @@ class TestOpenAPISchema:
     @pytest.fixture
     def client(self):
         """Create test client"""
-        return TestClient(app)
+        # Use context manager to ensure lifespan events trigger
+        with TestClient(app) as client:
+            yield client
 
     def test_openapi_schema(self, client):
         """Test that OpenAPI schema is generated"""

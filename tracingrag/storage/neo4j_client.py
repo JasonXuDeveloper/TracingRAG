@@ -3,7 +3,7 @@
 from typing import Any
 from uuid import UUID
 
-from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession
+from neo4j import AsyncDriver, AsyncGraphDatabase
 from neo4j.exceptions import ServiceUnavailable
 
 from tracingrag.config import settings

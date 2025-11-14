@@ -2,8 +2,6 @@
 
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import Any
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
@@ -11,24 +9,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from tracingrag.agents.service import AgentService
 from tracingrag.api.schemas import (
     CreateMemoryRequest,
-    ErrorResponse,
     HealthResponse,
     MemoryListResponse,
     MemoryStateResponse,
     MetricsResponse,
     PromoteMemoryRequest,
     PromoteMemoryResponse,
-    PromotionCandidatesResponse,
     PromotionCandidateResponse,
+    PromotionCandidatesResponse,
     QueryRequest,
     QueryResponse,
 )
-from tracingrag.agents.service import AgentService
 from tracingrag.core.models.promotion import PromotionRequest as PromotionServiceRequest
 from tracingrag.services.memory import MemoryService
-from tracingrag.services.metrics import MetricsCollector, get_metrics, get_content_type
+from tracingrag.services.metrics import MetricsCollector, get_content_type, get_metrics
 from tracingrag.services.promotion import PromotionService
 from tracingrag.services.rag import RAGService
 from tracingrag.storage.database import get_session
@@ -98,9 +95,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         # Track active requests
         from tracingrag.services.metrics import api_active_requests
 
-        api_active_requests.labels(
-            method=request.method, endpoint=request.url.path
-        ).inc()
+        api_active_requests.labels(method=request.method, endpoint=request.url.path).inc()
 
         try:
             response = await call_next(request)
@@ -117,9 +112,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             # Decrease active requests
-            api_active_requests.labels(
-                method=request.method, endpoint=request.url.path
-            ).dec()
+            api_active_requests.labels(method=request.method, endpoint=request.url.path).dec()
 
 
 # Add metrics middleware
@@ -162,7 +155,9 @@ async def health_check():
         "promotion_service": "healthy" if promotion_service else "unavailable",
     }
 
-    overall_status = "healthy" if all(s == "healthy" for s in services_status.values()) else "degraded"
+    overall_status = (
+        "healthy" if all(s == "healthy" for s in services_status.values()) else "degraded"
+    )
 
     return HealthResponse(
         status=overall_status,
@@ -176,9 +171,7 @@ async def get_metrics():
     """Get system metrics"""
     async with get_session() as session:
         # Count total memories
-        total_memories_result = await session.execute(
-            select(func.count(MemoryStateDB.id))
-        )
+        total_memories_result = await session.execute(select(func.count(MemoryStateDB.id)))
         total_memories = total_memories_result.scalar() or 0
 
         # Count unique topics
@@ -192,9 +185,7 @@ async def get_metrics():
 
         # Count promotions (states with "promoted" tag)
         promotions_result = await session.execute(
-            select(func.count(MemoryStateDB.id)).where(
-                MemoryStateDB.tags.contains(["promoted"])
-            )
+            select(func.count(MemoryStateDB.id)).where(MemoryStateDB.tags.contains(["promoted"]))
         )
         total_promotions = promotions_result.scalar() or 0
 

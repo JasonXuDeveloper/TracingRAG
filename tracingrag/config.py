@@ -1,7 +1,5 @@
 """Configuration management using Pydantic settings"""
 
-from typing import Optional
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,12 +34,12 @@ class Settings(BaseSettings):
     # Embedding Configuration
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
     embedding_dimension: int = 768
-    openai_api_key: Optional[str] = None
+    openai_api_key: str | None = None
     openai_embedding_model: str = "text-embedding-3-small"
 
     # Qdrant (Vector Database)
     qdrant_url: str = "http://localhost:6333"
-    qdrant_api_key: Optional[str] = None
+    qdrant_api_key: str | None = None
     qdrant_collection_name: str = "tracingrag_memories"
     qdrant_grpc_port: int = 6334
     qdrant_use_grpc: bool = False

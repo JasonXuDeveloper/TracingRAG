@@ -120,9 +120,7 @@ class LLMClient:
             },
         )
 
-    async def generate_streaming(
-        self, request: LLMRequest
-    ) -> Any:  # AsyncGenerator[str, None]
+    async def generate_streaming(self, request: LLMRequest) -> Any:  # AsyncGenerator[str, None]
         """
         Generate response with streaming (for future use)
 
@@ -217,9 +215,7 @@ def get_llm_client(
     global _llm_client
 
     if _llm_client is None:
-        _llm_client = LLMClient(
-            api_key=api_key, base_url=base_url, default_model=default_model
-        )
+        _llm_client = LLMClient(api_key=api_key, base_url=base_url, default_model=default_model)
 
     return _llm_client
 

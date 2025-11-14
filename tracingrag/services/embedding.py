@@ -102,8 +102,6 @@ async def compute_similarity(embedding1: list[float], embedding2: list[float]) -
     Returns:
         Cosine similarity score (0-1)
     """
-    model = get_embedding_model()
-
     # Convert to tensors
     tensor1 = torch.tensor(embedding1)
     tensor2 = torch.tensor(embedding2)
@@ -114,7 +112,9 @@ async def compute_similarity(embedding1: list[float], embedding2: list[float]) -
         tensor2.unsqueeze(0),
     )
 
-    return float(similarity.item())
+    # Normalize from [-1, 1] to [0, 1]
+    normalized = (float(similarity.item()) + 1.0) / 2.0
+    return normalized
 
 
 async def compute_similarities_batch(
@@ -140,7 +140,9 @@ async def compute_similarities_batch(
         candidate_tensor,
     )
 
-    return similarities.tolist()
+    # Normalize from [-1, 1] to [0, 1]
+    normalized = (similarities + 1.0) / 2.0
+    return normalized.tolist()
 
 
 def get_embedding_dimension() -> int:
@@ -286,9 +288,7 @@ class EmbeddingService:
             cache = await self._get_cache()
             if cache:
                 try:
-                    cached = await cache.get_embedding(
-                        text, settings.embedding_model
-                    )
+                    cached = await cache.get_embedding(text, settings.embedding_model)
                     if cached is not None:
                         return cached
                 except Exception:
@@ -313,9 +313,7 @@ class EmbeddingService:
                 cache = await self._get_cache()
                 if cache:
                     try:
-                        await cache.set_embedding(
-                            text, settings.embedding_model, embedding
-                        )
+                        await cache.set_embedding(text, settings.embedding_model, embedding)
                     except Exception:
                         # Silently fail on cache write errors
                         pass
@@ -351,9 +349,7 @@ class EmbeddingService:
             # Try Redis cache first
             if cache:
                 try:
-                    cached = await cache.get_embedding(
-                        text, settings.embedding_model
-                    )
+                    cached = await cache.get_embedding(text, settings.embedding_model)
                 except Exception:
                     pass
 
@@ -370,13 +366,11 @@ class EmbeddingService:
 
         # Generate embeddings for uncached texts
         if uncached_texts:
-            uncached_embeddings = await generate_embeddings_batch(
-                uncached_texts, batch_size
-            )
+            uncached_embeddings = await generate_embeddings_batch(uncached_texts, batch_size)
 
             # Store in caches and fill results
             for idx, text, embedding in zip(
-                uncached_indices, uncached_texts, uncached_embeddings
+                uncached_indices, uncached_texts, uncached_embeddings, strict=False
             ):
                 results[idx] = embedding
 
@@ -386,9 +380,7 @@ class EmbeddingService:
                 # Store in Redis cache
                 if cache:
                     try:
-                        await cache.set_embedding(
-                            text, settings.embedding_model, embedding
-                        )
+                        await cache.set_embedding(text, settings.embedding_model, embedding)
                     except Exception:
                         pass
 

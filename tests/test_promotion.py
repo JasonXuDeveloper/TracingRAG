@@ -1,14 +1,15 @@
 """Tests for memory promotion service"""
 
-import pytest
-from uuid import uuid4
 from datetime import datetime
+from uuid import uuid4
+
+import pytest
 
 from tracingrag.core.models.promotion import (
     Conflict,
-    ConflictType,
     ConflictResolution,
     ConflictResolutionStrategy,
+    ConflictType,
     EdgeUpdate,
     PromotionCandidate,
     PromotionRequest,
@@ -183,9 +184,7 @@ class TestPromotionService:
             for i in range(3)
         ]
 
-        sources = promotion_service._build_synthesis_sources(
-            sources=states, related_states=[]
-        )
+        sources = promotion_service._build_synthesis_sources(sources=states, related_states=[])
 
         assert len(sources) == 3
         assert sources[0].weight == 1.0  # Most recent
@@ -246,7 +245,6 @@ class TestPromotionService:
     @pytest.mark.asyncio
     async def test_check_citations_with_references(self, promotion_service):
         """Test citation check with content that has references"""
-        from tracingrag.storage.models import MemoryStateDB
 
         sources = [
             SynthesisSource(
@@ -284,9 +282,7 @@ class TestPromotionService:
         ]
 
         content_without_citations = "This is just some content without any references."
-        check = await promotion_service._check_citations(
-            content_without_citations, sources
-        )
+        check = await promotion_service._check_citations(content_without_citations, sources)
 
         assert check.check_type == QualityCheckType.CITATION
         # Should fail when there are multiple sources but no citations
@@ -490,7 +486,7 @@ class TestAutomaticPromotion:
 
     def test_promotion_policy_creation(self):
         """Test creating a promotion policy"""
-        from tracingrag.core.models.promotion import PromotionPolicy, PromotionMode
+        from tracingrag.core.models.promotion import PromotionMode, PromotionPolicy
 
         policy = PromotionPolicy(
             mode=PromotionMode.AUTOMATIC,
@@ -505,7 +501,7 @@ class TestAutomaticPromotion:
 
     def test_promotion_policy_defaults(self):
         """Test promotion policy default values"""
-        from tracingrag.core.models.promotion import PromotionPolicy, PromotionMode
+        from tracingrag.core.models.promotion import PromotionMode, PromotionPolicy
 
         policy = PromotionPolicy()
 
@@ -539,8 +535,8 @@ class TestAutomaticPromotion:
     @pytest.mark.asyncio
     async def test_promotion_service_with_policy(self):
         """Test promotion service instantiation with policy"""
+        from tracingrag.core.models.promotion import PromotionMode, PromotionPolicy
         from tracingrag.services.promotion import PromotionService
-        from tracingrag.core.models.promotion import PromotionPolicy, PromotionMode
 
         policy = PromotionPolicy(mode=PromotionMode.AUTOMATIC)
         service = PromotionService(policy=policy)
@@ -551,16 +547,15 @@ class TestAutomaticPromotion:
     @pytest.mark.asyncio
     async def test_evaluate_after_insertion_manual_mode(self):
         """Test that evaluate_after_insertion returns None in manual mode"""
-        from tracingrag.services.promotion import PromotionService
-        from tracingrag.core.models.promotion import PromotionPolicy, PromotionMode
         from uuid import uuid4
+
+        from tracingrag.core.models.promotion import PromotionMode, PromotionPolicy
+        from tracingrag.services.promotion import PromotionService
 
         policy = PromotionPolicy(mode=PromotionMode.MANUAL)
         service = PromotionService(policy=policy)
 
-        result = await service.evaluate_after_insertion(
-            topic="test_topic", new_state_id=uuid4()
-        )
+        result = await service.evaluate_after_insertion(topic="test_topic", new_state_id=uuid4())
 
         # Should return None in manual mode
         assert result is None

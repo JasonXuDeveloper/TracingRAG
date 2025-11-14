@@ -3,13 +3,11 @@
 import os
 import time
 from datetime import datetime, timedelta
-from typing import Optional
 
 import jwt
 from fastapi import HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.context import CryptContext
-
 
 # Configuration
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
@@ -58,7 +56,7 @@ def get_password_hash(password: str) -> str:
 # ============================================================================
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     """Create a JWT access token
 
     Args:
@@ -395,9 +393,7 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Strict-Transport-Security"] = (
-        "max-age=31536000; includeSubDomains"
-    )
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     response.headers["Content-Security-Policy"] = "default-src 'self'"
 
     return response

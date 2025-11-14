@@ -4,11 +4,9 @@ import logging
 import sys
 from contextvars import ContextVar
 from datetime import datetime
-from typing import Any
 from uuid import uuid4
 
 import structlog
-
 
 # Context variable for request ID
 request_id_ctx: ContextVar[str] = ContextVar("request_id", default="")
@@ -179,9 +177,7 @@ class AuditLogger:
             **kwargs,
         )
 
-    def log_api_access(
-        self, user: str, endpoint: str, method: str, status: int, **kwargs
-    ):
+    def log_api_access(self, user: str, endpoint: str, method: str, status: int, **kwargs):
         """Log API access"""
         self.logger.info(
             "api_access",
@@ -212,9 +208,7 @@ class AuditLogger:
             **kwargs,
         )
 
-    def log_promotion(
-        self, user: str, topic: str, trigger: str, success: bool, **kwargs
-    ):
+    def log_promotion(self, user: str, topic: str, trigger: str, success: bool, **kwargs):
         """Log memory promotion"""
         self.logger.info(
             "promotion",

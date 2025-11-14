@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -52,17 +52,15 @@ class MemoryState(BaseModel):
     content: str = Field(..., description="The actual knowledge/information")
     version: int = Field(ge=1, description="Version number in the trace")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
-    embedding: Optional[list[float]] = Field(default=None, description="Vector representation")
-    parent_state_id: Optional[UUID] = Field(
-        default=None, description="Previous version in the trace"
-    )
+    embedding: list[float] | None = Field(default=None, description="Vector representation")
+    parent_state_id: UUID | None = Field(default=None, description="Previous version in the trace")
     metadata: dict[str, Any] = Field(default_factory=dict)
     tags: list[str] = Field(default_factory=list)
     confidence: float = Field(
         default=1.0, ge=0.0, le=1.0, description="Confidence score for this state"
     )
-    source: Optional[str] = Field(default=None, description="Where this information came from")
-    created_by: Optional[str] = Field(default=None, description="Who/what created this state")
+    source: str | None = Field(default=None, description="Where this information came from")
+    created_by: str | None = Field(default=None, description="Who/what created this state")
 
     # Analytics and storage management (not used for retrieval ranking)
     access_count: int = Field(default=0, description="Number of times accessed (analytics only)")
@@ -73,26 +71,24 @@ class MemoryState(BaseModel):
     storage_tier: StorageTier = Field(default=StorageTier.ACTIVE)
 
     # Consolidation tracking
-    consolidated_from: Optional[list[UUID]] = Field(
+    consolidated_from: list[UUID] | None = Field(
         default=None, description="State IDs this was consolidated from"
     )
     is_consolidated: bool = Field(default=False, description="Is this a consolidated summary?")
-    consolidation_level: int = Field(
-        default=0, description="0=raw, 1=daily, 2=weekly, 3=monthly"
-    )
+    consolidation_level: int = Field(default=0, description="0=raw, 1=daily, 2=weekly, 3=monthly")
 
     # Diff-based storage for efficiency
-    diff_from_parent: Optional[str] = Field(
+    diff_from_parent: str | None = Field(
         default=None, description="Diff from parent state (for storage efficiency)"
     )
     is_delta: bool = Field(default=False, description="Is this stored as diff?")
 
     # Optional entity typing pattern (user-defined, not prescribed)
-    entity_type: Optional[str] = Field(
+    entity_type: str | None = Field(
         default=None,
         description="Optional user-defined entity type (e.g., 'character', 'bug', 'patient')",
     )
-    entity_schema: Optional[dict[str, Any]] = Field(
+    entity_schema: dict[str, Any] | None = Field(
         default=None,
         description="Optional user-defined structured data for this entity",
     )
@@ -126,7 +122,7 @@ class MemoryEdge(BaseModel):
         default=False, description="Whether the relationship works both ways"
     )
     metadata: dict[str, Any] = Field(default_factory=dict)
-    description: Optional[str] = Field(
+    description: str | None = Field(
         default=None, description="Human-readable description of why this edge exists"
     )
 
@@ -134,10 +130,10 @@ class MemoryEdge(BaseModel):
     valid_from: datetime = Field(
         default_factory=datetime.utcnow, description="When this edge became true"
     )
-    valid_until: Optional[datetime] = Field(
+    valid_until: datetime | None = Field(
         default=None, description="When this edge stopped being true (None = still valid)"
     )
-    superseded_by: Optional[UUID] = Field(
+    superseded_by: UUID | None = Field(
         default=None, description="Edge that replaced this one (if applicable)"
     )
 
@@ -181,7 +177,7 @@ class Trace(BaseModel):
         return len(self.state_ids)
 
     @property
-    def latest_state_id(self) -> Optional[UUID]:
+    def latest_state_id(self) -> UUID | None:
         """Get the ID of the latest state"""
         return self.state_ids[-1] if self.state_ids else None
 
@@ -208,14 +204,12 @@ class QueryContext(BaseModel):
     include_history: bool = Field(default=False, description="Include trace history")
     include_related: bool = Field(default=True, description="Include graph-connected states")
     graph_depth: int = Field(default=2, ge=1, le=5, description="Graph traversal depth")
-    time_window: Optional[tuple[datetime, datetime]] = Field(
+    time_window: tuple[datetime, datetime] | None = Field(
         default=None, description="Filter by time range"
     )
     limit: int = Field(default=10, ge=1, le=100, description="Max results")
-    min_relevance: float = Field(
-        default=0.7, ge=0.0, le=1.0, description="Minimum relevance score"
-    )
-    tags: Optional[list[str]] = Field(default=None, description="Filter by tags")
+    min_relevance: float = Field(default=0.7, ge=0.0, le=1.0, description="Minimum relevance score")
+    tags: list[str] | None = Field(default=None, description="Filter by tags")
 
 
 class RetrievalResult(BaseModel):
@@ -225,10 +219,8 @@ class RetrievalResult(BaseModel):
     relevance_score: float = Field(ge=0.0, le=1.0)
     related_states: list["MemoryState"] = Field(default_factory=list)
     historical_context: list["MemoryState"] = Field(default_factory=list)
-    trace_id: Optional[UUID] = None
-    reasoning: Optional[str] = Field(
-        default=None, description="Why this result was retrieved"
-    )
+    trace_id: UUID | None = None
+    reasoning: str | None = Field(default=None, description="Why this result was retrieved")
 
 
 class PromotionRequest(BaseModel):
@@ -236,7 +228,7 @@ class PromotionRequest(BaseModel):
 
     topic: str = Field(..., description="Topic to promote")
     reason: str = Field(..., description="Why this promotion is needed")
-    context: Optional[str] = Field(default=None, description="Additional context for synthesis")
+    context: str | None = Field(default=None, description="Additional context for synthesis")
     include_related: bool = Field(default=True, description="Include related states in synthesis")
     max_history: int = Field(default=10, description="Max historical states to consider")
     tags: list[str] = Field(default_factory=list, description="Tags for new state")
@@ -246,7 +238,7 @@ class PromotionResult(BaseModel):
     """Result of a memory promotion"""
 
     new_state: MemoryState
-    previous_state_id: Optional[UUID]
+    previous_state_id: UUID | None
     synthesized_from: list[UUID] = Field(
         default_factory=list, description="States that contributed to synthesis"
     )

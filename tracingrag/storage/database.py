@@ -1,7 +1,7 @@
 """PostgreSQL database connection and session management using SQLAlchemy"""
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -25,13 +25,22 @@ def get_engine() -> AsyncEngine:
     """Get or create the database engine"""
     global _engine
     if _engine is None:
-        _engine = create_async_engine(
-            settings.database_url,
-            echo=settings.database_echo,
-            pool_size=settings.database_pool_size,
-            max_overflow=settings.database_max_overflow,
-            pool_pre_ping=True,  # Verify connections before using
-        )
+        # SQLite doesn't support pool_size and max_overflow parameters
+        is_sqlite = settings.database_url.startswith(("sqlite", "sqlite+aiosqlite"))
+
+        if is_sqlite:
+            _engine = create_async_engine(
+                settings.database_url,
+                echo=settings.database_echo,
+            )
+        else:
+            _engine = create_async_engine(
+                settings.database_url,
+                echo=settings.database_echo,
+                pool_size=settings.database_pool_size,
+                max_overflow=settings.database_max_overflow,
+                pool_pre_ping=True,  # Verify connections before using
+            )
     return _engine
 
 

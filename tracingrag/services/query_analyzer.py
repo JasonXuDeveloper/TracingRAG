@@ -25,9 +25,7 @@ class QueryAnalyzer:
         self.llm_client = llm_client or get_llm_client()
         self.default_model = default_model
 
-    async def analyze_query(
-        self, query: str, use_llm: bool = True
-    ) -> dict[str, Any]:
+    async def analyze_query(self, query: str, use_llm: bool = True) -> dict[str, Any]:
         """
         Analyze query to determine type, consolidation level, and other metadata
 
@@ -145,9 +143,7 @@ class QueryAnalyzer:
 
             # Convert string values to enums
             query_type = QueryType(analysis.get("query_type", "general"))
-            consolidation_level = ConsolidationLevel(
-                analysis.get("consolidation_level", 2)
-            )
+            consolidation_level = ConsolidationLevel(analysis.get("consolidation_level", 2))
 
             return {
                 "query_type": query_type,
@@ -158,7 +154,7 @@ class QueryAnalyzer:
                 "entities": analysis.get("entities", []),
                 "reasoning": analysis.get("reasoning", ""),
             }
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
+        except (json.JSONDecodeError, KeyError, ValueError):
             # Fallback to rule-based if LLM response is invalid
             return self._analyze_with_rules(query)
 
@@ -299,25 +295,16 @@ Your classification helps optimize:
             query_type = QueryType.OVERVIEW
 
         # Why queries
-        elif (
-            query_lower.startswith("why")
-            or "why did" in query_lower
-            or "why " in query_lower
-        ):
+        elif query_lower.startswith("why") or "why did" in query_lower or "why " in query_lower:
             query_type = QueryType.WHY
 
         # How queries
-        elif (
-            query_lower.startswith("how")
-            or "how does" in query_lower
-            or "how to" in query_lower
-        ):
+        elif query_lower.startswith("how") or "how does" in query_lower or "how to" in query_lower:
             query_type = QueryType.HOW
 
         # Comparison queries
         elif any(
-            phrase in query_lower
-            for phrase in ["compare", "difference", "versus", "vs ", " vs"]
+            phrase in query_lower for phrase in ["compare", "difference", "versus", "vs ", " vs"]
         ):
             query_type = QueryType.COMPARISON
 
@@ -359,9 +346,7 @@ Your classification helps optimize:
             "reasoning": "Rule-based classification (fallback mode)",
         }
 
-    def _determine_consolidation_level_rules(
-        self, query_type: QueryType
-    ) -> ConsolidationLevel:
+    def _determine_consolidation_level_rules(self, query_type: QueryType) -> ConsolidationLevel:
         """Determine consolidation level using rules"""
         if query_type == QueryType.STATUS:
             return ConsolidationLevel.RAW
@@ -399,8 +384,6 @@ def get_query_analyzer(
     global _query_analyzer
 
     if _query_analyzer is None:
-        _query_analyzer = QueryAnalyzer(
-            llm_client=llm_client, default_model=default_model
-        )
+        _query_analyzer = QueryAnalyzer(llm_client=llm_client, default_model=default_model)
 
     return _query_analyzer
