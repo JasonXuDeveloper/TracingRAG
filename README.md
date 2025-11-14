@@ -73,7 +73,7 @@ See [DESIGN.md](DESIGN.md) for detailed architecture and design decisions.
 
 ### Prerequisites
 
-- Python 3.11+
+- **Python 3.11, 3.12, or 3.13** (Python 3.14+ not yet supported due to dependency compatibility)
 - Docker and Docker Compose
 - Poetry (Python package manager)
 

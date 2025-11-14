@@ -4,9 +4,11 @@ This guide will help you get TracingRAG up and running in under 10 minutes.
 
 ## Prerequisites
 
-- Python 3.11 or higher
+- **Python 3.11, 3.12, or 3.13** (Python 3.14+ not yet supported)
 - Docker and Docker Compose
 - 4GB+ RAM available for services
+
+**Important:** If you're on Python 3.14+, please use Python 3.11-3.13 instead. Some dependencies like `greenlet` (required for async database operations) don't have pre-built wheels for Python 3.14 yet.
 
 ## Step 1: Clone and Install
 
