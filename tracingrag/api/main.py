@@ -76,11 +76,38 @@ async def lifespan(app: FastAPI):
         print(f"⚠ Neo4j initialization failed (optional): {e}")
 
     # Initialize services (with lazy loading, no LLM client needed)
+    from tracingrag.config import settings
+    from tracingrag.core.models.promotion import PromotionMode, PromotionPolicy
+
     memory_service = MemoryService()
     rag_service = RAGService()
     agent_service = AgentService()
-    promotion_service = PromotionService()
-    print("✓ TracingRAG services initialized successfully")
+
+    # Initialize promotion service with auto-promotion policy if enabled
+    promotion_policy = PromotionPolicy(
+        mode=PromotionMode.AUTOMATIC if settings.auto_promotion_enabled else PromotionMode.MANUAL,
+        confidence_threshold=settings.promotion_confidence_threshold,
+    )
+    promotion_service = PromotionService(policy=promotion_policy)
+
+    # Print model configuration
+    print("\n" + "="*70)
+    print("🤖 LLM Model Configuration:")
+    print("="*70)
+    print(f"  Main Query Model:      {settings.default_llm_model}")
+    print(f"  Fallback Model:        {settings.fallback_llm_model}")
+    print(f"  Analysis Model:        {settings.analysis_model}")
+    print(f"  Evaluation Model:      {settings.evaluation_model}")
+    print(f"  Query Analyzer Model:  {settings.query_analyzer_model}")
+    print(f"  Planner Model:         {settings.planner_model}")
+    print(f"  Manager Model:         {settings.manager_model}")
+    print("="*70)
+
+    if settings.auto_promotion_enabled:
+        print("✓ TracingRAG services initialized (Auto-promotion: ENABLED)")
+    else:
+        print("✓ TracingRAG services initialized (Auto-promotion: Manual)")
+    print()
 
     yield
 
@@ -161,6 +188,20 @@ app.add_middleware(MetricsMiddleware)
 # ============================================================================
 
 
+def serialize_for_json(obj):
+    """Recursively convert UUIDs and other non-serializable objects to JSON-safe types"""
+    if isinstance(obj, UUID):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {key: serialize_for_json(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [serialize_for_json(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(serialize_for_json(item) for item in obj)
+    else:
+        return obj
+
+
 def memory_db_to_response(memory: MemoryStateDB) -> MemoryStateResponse:
     """Convert database model to API response model"""
     return MemoryStateResponse(
@@ -170,7 +211,7 @@ def memory_db_to_response(memory: MemoryStateDB) -> MemoryStateResponse:
         version=memory.version,
         timestamp=memory.timestamp,
         parent_state_id=memory.parent_state_id,
-        metadata=memory.custom_metadata,
+        metadata=serialize_for_json(memory.custom_metadata or {}),
         tags=memory.tags,
         confidence=memory.confidence,
         source=memory.source,
@@ -259,6 +300,12 @@ async def create_memory(request: CreateMemoryRequest):
             tags=request.tags,
             confidence=request.confidence,
             source=request.source,
+        )
+
+        # Check if auto-promotion should be triggered
+        await promotion_service.evaluate_after_insertion(
+            topic=request.topic,
+            new_state_id=memory.id,
         )
 
         return memory_db_to_response(memory)
@@ -367,28 +414,48 @@ async def query_rag(request: QueryRequest):
             # Use agent-based retrieval
             result = await agent_service.query_with_agent(query=request.query)
 
+            # Fetch memory states from source IDs
+            sources = []
+            for source_id in result.sources:
+                memory_state = await memory_service.get_memory_state(source_id)
+                if memory_state:
+                    sources.append(memory_db_to_response(memory_state))
+
+            # Generate reasoning summary from steps
+            reasoning = None
+            if result.reasoning_steps:
+                step_summaries = [f"{step.action.value}: {step.result or 'executed'}" for step in result.reasoning_steps]
+                reasoning = " → ".join(step_summaries)
+
             return QueryResponse(
                 answer=result.answer,
-                sources=[memory_db_to_response(s) for s in result.states],
+                sources=sources,
                 confidence=result.confidence,
-                reasoning=result.reasoning,
+                reasoning=reasoning,
                 metadata=result.metadata,
             )
         else:
             # Use standard RAG
-            result = await rag_service.query(
-                query=request.query,
-                limit=request.limit,
-            )
+            result = await rag_service.query(query=request.query)
+
+            # Fetch memory states from source IDs
+            sources = []
+            for source_id in result.sources:
+                memory_state = await memory_service.get_memory_state(source_id)
+                if memory_state:
+                    sources.append(memory_db_to_response(memory_state))
 
             return QueryResponse(
                 answer=result.answer,
-                sources=[memory_db_to_response(s) for s in result.states],
+                sources=sources,
                 confidence=result.confidence,
-                metadata=result.metadata,
+                metadata=serialize_for_json(result.metadata),
             )
 
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Query error traceback:\n{error_trace}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Query failed: {str(e)}",

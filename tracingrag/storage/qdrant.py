@@ -118,7 +118,7 @@ async def upsert_embedding(
                 collection_name=collection_name,
                 vector_size=vector_size,
             )
-    except Exception as e:
+    except Exception:
         # If collection check fails, try to create it
         vector_size = len(embedding)
         await init_qdrant_collection(
@@ -185,7 +185,7 @@ async def search_similar(
     # Convert to dict format
     return [
         {
-            "id": UUID(result.id),
+            "id": UUID(result.id) if isinstance(result.id, str) else result.id,
             "score": result.score,
             "payload": result.payload,
         }

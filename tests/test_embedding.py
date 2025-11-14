@@ -68,7 +68,7 @@ class TestSimilarityComputation:
         embedding = await generate_embedding(text)
 
         similarity = await compute_similarity(embedding, embedding)
-        assert 0.99 < similarity <= 1.0  # Should be very close to 1.0
+        assert 0.99 < similarity < 1.01  # Should be very close to 1.0, allow floating point precision
 
     @pytest.mark.asyncio
     async def test_compute_similarity_different(self):
