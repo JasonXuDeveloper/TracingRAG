@@ -22,8 +22,15 @@ class QueryAnalyzer:
             llm_client: LLM client for query analysis (uses singleton if None)
             default_model: Default model for query classification (free/cheap model recommended)
         """
-        self.llm_client = llm_client or get_llm_client()
+        self._llm_client = llm_client  # Store provided client or None
         self.default_model = default_model
+
+    @property
+    def llm_client(self) -> LLMClient:
+        """Lazy-load LLM client only when needed"""
+        if self._llm_client is None:
+            self._llm_client = get_llm_client()
+        return self._llm_client
 
     async def analyze_query(self, query: str, use_llm: bool = True) -> dict[str, Any]:
         """
