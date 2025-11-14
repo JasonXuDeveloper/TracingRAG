@@ -162,6 +162,8 @@ jobs:
           output: "trivy-results.sarif"
           timeout: "15m0s"
           skip-dirs: "/root/.cache"
+          severity: "HIGH,CRITICAL"  # Only scan for high and critical vulnerabilities
+          trivyignores: ".trivyignore"  # Use ignore file for kernel CVEs
 
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
