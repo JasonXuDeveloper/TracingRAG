@@ -34,14 +34,35 @@ class AgentService:
             answer_model: Model for final answer generation
             max_answer_tokens: Maximum tokens for answer generation (default 16000)
         """
-        self.llm_client = llm_client or get_llm_client()
+        self._llm_client = llm_client  # Store provided client or None
+        self._query_planner = query_planner
+        self._memory_manager = memory_manager
         self.tools = tools or AgentTools()
-        self.query_planner = query_planner or QueryPlannerAgent(
-            llm_client=self.llm_client, tools=self.tools
-        )
-        self.memory_manager = memory_manager or MemoryManagerAgent(llm_client=self.llm_client)
         self.answer_model = answer_model
         self.max_answer_tokens = max_answer_tokens
+
+    @property
+    def llm_client(self) -> LLMClient:
+        """Lazy-load LLM client only when needed"""
+        if self._llm_client is None:
+            self._llm_client = get_llm_client()
+        return self._llm_client
+
+    @property
+    def query_planner(self) -> QueryPlannerAgent:
+        """Lazy-load query planner only when needed"""
+        if self._query_planner is None:
+            self._query_planner = QueryPlannerAgent(
+                llm_client=self.llm_client, tools=self.tools
+            )
+        return self._query_planner
+
+    @property
+    def memory_manager(self) -> MemoryManagerAgent:
+        """Lazy-load memory manager only when needed"""
+        if self._memory_manager is None:
+            self._memory_manager = MemoryManagerAgent(llm_client=self.llm_client)
+        return self._memory_manager
 
     async def query_with_agent(self, query: str, max_iterations: int = 3) -> AgentResult:
         """

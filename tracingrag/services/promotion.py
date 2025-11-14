@@ -64,11 +64,18 @@ class PromotionService:
         self.memory_service = memory_service or MemoryService()
         self.graph_service = graph_service or GraphService()
         self.retrieval_service = retrieval_service or RetrievalService()
-        self.llm_client = llm_client or get_llm_client()
+        self._llm_client = llm_client  # Store provided client or None
         self.synthesis_model = synthesis_model
         self.analysis_model = analysis_model
         self.max_synthesis_tokens = max_synthesis_tokens
         self.policy = policy or PromotionPolicy()
+
+    @property
+    def llm_client(self) -> LLMClient:
+        """Lazy-load LLM client only when needed"""
+        if self._llm_client is None:
+            self._llm_client = get_llm_client()
+        return self._llm_client
 
     async def promote_memory(self, request: PromotionRequest) -> PromotionResult:
         """
