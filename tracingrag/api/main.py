@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
         from tracingrag.services.embedding import get_embedding_dimension
         from tracingrag.storage.qdrant import init_qdrant_collection
 
-        embedding_dim = await get_embedding_dimension()
+        embedding_dim = get_embedding_dimension()  # Synchronous function, no await
         await init_qdrant_collection(
             collection_name="memory_states",
             vector_size=embedding_dim,
