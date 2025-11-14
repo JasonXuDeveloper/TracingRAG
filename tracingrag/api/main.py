@@ -120,6 +120,8 @@ async def lifespan(app: FastAPI):
     await close_qdrant()
     await close_neo4j()
     logger.info("✓ Connections closed")
+
+
 # Create FastAPI app
 app = FastAPI(
     title="TracingRAG API",

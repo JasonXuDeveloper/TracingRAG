@@ -44,7 +44,7 @@ async def novel_writing_example():
         print("🌍 Phase 1: World-Building - The Starship Universe...")
         print()
 
-        setting_ship = await client.create_memory(
+        await client.create_memory(
             topic="setting_starship_nova",
             content=(
                 "The Starship Nova is humanity's last colony ship, carrying 10,000 "
@@ -58,7 +58,7 @@ async def novel_writing_example():
         )
         print("   ✅ Created setting: Starship Nova")
 
-        factions_v1 = await client.create_memory(
+        await client.create_memory(
             topic="political_factions",
             content=(
                 "Three main factions on the ship: "
@@ -71,7 +71,7 @@ async def novel_writing_example():
         )
         print("   ✅ Created political landscape")
 
-        history = await client.create_memory(
+        await client.create_memory(
             topic="ship_history",
             content=(
                 "Critical history: 200 years ago, Earth was destroyed by climate collapse. "
@@ -94,7 +94,7 @@ async def novel_writing_example():
         print()
 
         # Protagonist 1: Sarah Chen (Engineer)
-        char_sarah_v1 = await client.create_memory(
+        await client.create_memory(
             topic="character_sarah_chen",
             content=(
                 "Sarah Chen, age 28, lead engineer in the Engineering Core. "
@@ -111,7 +111,7 @@ async def novel_writing_example():
         print("   ✅ Created protagonist: Sarah Chen (Engineer)")
 
         # Protagonist 2: David Wright (Medical Officer)
-        char_david_v1 = await client.create_memory(
+        await client.create_memory(
             topic="character_david_wright",
             content=(
                 "David Wright, age 30, chief medical officer and Sarah's childhood friend. "
@@ -127,7 +127,7 @@ async def novel_writing_example():
         print("   ✅ Created co-protagonist: David Wright (Medical Officer)")
 
         # Antagonist: Marcus Hall (Council Chairman)
-        char_marcus_v1 = await client.create_memory(
+        await client.create_memory(
             topic="character_marcus_hall",
             content=(
                 "Marcus Hall, age 45, Council Chairman. Former military officer. "
@@ -144,7 +144,7 @@ async def novel_writing_example():
         print("   ✅ Created antagonist: Marcus Hall (Council Chairman)")
 
         # Supporting: Tom Hall (Marcus's son)
-        char_tom_v1 = await client.create_memory(
+        await client.create_memory(
             topic="character_tom_hall",
             content=(
                 "Tom Hall, age 27, Marcus's son, works in Navigation. "
@@ -159,7 +159,7 @@ async def novel_writing_example():
         print("   ✅ Created supporting: Tom Hall (Navigator)")
 
         # Supporting: Dr. Zhang (Sarah's mentor)
-        char_zhang_v1 = await client.create_memory(
+        await client.create_memory(
             topic="character_dr_zhang",
             content=(
                 "Dr. Zhang Wei, age 65, senior engineer and Sarah's mentor. "
@@ -580,8 +580,10 @@ async def novel_writing_example():
         )
         print("   ✅ Catalyst: Current oxygen crisis (story begins)")
 
-        print(f"\n   📊 Total initial memories: 5 characters + 10 relationships + 15 historical/contextual")
-        print(f"   📊 = 30+ interconnected memory states!")
+        print(
+            "\n   📊 Total initial memories: 5 characters + 10 relationships + 15 historical/contextual"
+        )
+        print("   📊 = 30+ interconnected memory states!")
         print("   🕸️  Dense narrative network with multiple conspiracy layers!")
         print()
 
@@ -591,7 +593,7 @@ async def novel_writing_example():
         print("📝 Phase 3: Writing early chapters (Discovery Arc)...")
         print()
 
-        plot_discovery = await client.create_memory(
+        await client.create_memory(
             topic="plot_discovery_arc",
             content=(
                 "Chapters 1-5: Sarah discovers failing life support systems during "
@@ -612,7 +614,7 @@ async def novel_writing_example():
         print("\n📖 Phase 4: Chapter 6-8 - MAJOR PLOT TWIST...")
         print()
 
-        plot_revelation = await client.create_memory(
+        await client.create_memory(
             topic="plot_revelation",
             content=(
                 "CHAPTER 8 CLIMAX: Sarah and David break into restricted Council archives. "
@@ -655,11 +657,13 @@ async def novel_writing_example():
                 print(f"\n   ✨ {topic} EVOLVED to v{latest.version}:")
                 print(f"      {latest.content[:150]}...")
                 if "cascading_evolved" in latest.tags:
-                    print(f"      🎯 Tagged as cascading_evolved!")
+                    print("      🎯 Tagged as cascading_evolved!")
             else:
                 print(f"\n   ⚠️  {topic}: No evolution (v1)")
 
-        print(f"\n   📊 Evolution summary: {evolved_count}/{len(characters_to_check)} characters evolved\n")
+        print(
+            f"\n   📊 Evolution summary: {evolved_count}/{len(characters_to_check)} characters evolved\n"
+        )
 
         # ====================================================================
         # Chapters 9-12: Character Development & Relationship Changes
@@ -668,7 +672,7 @@ async def novel_writing_example():
         print()
 
         # Sarah's transformation
-        char_sarah_v2 = await client.create_memory(
+        await client.create_memory(
             topic="character_sarah_chen",
             content=(
                 "Sarah Chen (Post-Revelation, Chapter 10): The truth about Kepler-442b and "
@@ -692,7 +696,7 @@ async def novel_writing_example():
         print("   ✅ Sarah evolved: Now a revolutionary leader")
 
         # David's transformation
-        char_david_v2 = await client.create_memory(
+        await client.create_memory(
             topic="character_david_wright",
             content=(
                 "David Wright (Post-Revelation, Chapter 10): Learning his father was murdered "
@@ -716,7 +720,7 @@ async def novel_writing_example():
         print("   ✅ David evolved: Grief-driven rebel, now with Sarah")
 
         # Tom's crisis
-        char_tom_v2 = await client.create_memory(
+        await client.create_memory(
             topic="character_tom_hall",
             content=(
                 "Tom Hall (Chapter 11): Tom is in crisis. Sarah broke up with him and revealed "
@@ -739,7 +743,7 @@ async def novel_writing_example():
         print("   ✅ Tom evolved: Facing moral crisis, isolated")
 
         # Marcus doubles down
-        char_marcus_v2 = await client.create_memory(
+        await client.create_memory(
             topic="character_marcus_hall",
             content=(
                 "Marcus Hall (Chapter 11): Marcus sees Sarah's rebellion as a threat to ship survival. "
@@ -784,7 +788,7 @@ async def novel_writing_example():
         print("📊 Phase 7: Political landscape shifts...")
         print()
 
-        factions_v2 = await client.create_memory(
+        await client.create_memory(
             topic="political_factions",
             content=(
                 "Factions after revelation (Chapter 13): "
@@ -821,9 +825,9 @@ async def novel_writing_example():
 
         if promotion.success:
             new_state = promotion.new_state
-            print(f"   ✅ Promotion successful!")
+            print("   ✅ Promotion successful!")
             print(f"   📊 New version: v{new_state.version}")
-            print(f"   📝 Synthesized Sarah's journey:")
+            print("   📝 Synthesized Sarah's journey:")
             print(f"      {new_state.content[:500]}...")
             print(f"\n   📚 Sources: {len(promotion.synthesis_sources)}")
             print(f"   🎯 Confidence: {promotion.confidence:.2f}")

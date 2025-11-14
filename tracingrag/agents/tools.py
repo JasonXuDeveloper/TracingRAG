@@ -94,7 +94,9 @@ class AgentTools:
         start_time = time.time()
 
         try:
-            logger.info(f"vector_search called with: query='{query}', limit={limit}, score_threshold={score_threshold}")
+            logger.info(
+                f"vector_search called with: query='{query}', limit={limit}, score_threshold={score_threshold}"
+            )
 
             # Use graph-enhanced retrieval to include related memories
             results = await self.retrieval_service.graph_enhanced_retrieval(
@@ -126,7 +128,9 @@ class AgentTools:
 
                 # Add related states from graph
                 if result.related_states:
-                    logger.info(f"Found {len(result.related_states)} related states for {result.state.topic}")
+                    logger.info(
+                        f"Found {len(result.related_states)} related states for {result.state.topic}"
+                    )
                     for related_info in result.related_states:
                         related_id_str = related_info.get("memory", {}).get("id")
                         if related_id_str and related_id_str not in seen_ids:

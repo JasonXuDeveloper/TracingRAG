@@ -14,11 +14,9 @@ from tracingrag.storage.models import MemoryStateDB, TopicLatestStateDB, TraceDB
 from tracingrag.storage.neo4j_client import (
     create_evolution_edge,
     create_memory_node,
-    get_parent_relationships,
     inherit_parent_relationships,
 )
 from tracingrag.storage.qdrant import upsert_embedding
-
 from tracingrag.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -75,7 +73,9 @@ class MemoryService:
                 latest_state = result.scalar_one_or_none()
                 if latest_state:
                     parent_state_id = latest_state.id
-                    logger.info(f"Auto-inferred parent_state_id for {topic} v{version}: {parent_state_id}")
+                    logger.info(
+                        f"Auto-inferred parent_state_id for {topic} v{version}: {parent_state_id}"
+                    )
 
             # Generate embedding
             text_for_embedding = await prepare_text_for_embedding(
@@ -154,8 +154,6 @@ class MemoryService:
             # Update parent state's is_latest to False if this is an evolution
             if parent_state_id:
                 try:
-                    from qdrant_client import models
-
                     from tracingrag.storage.qdrant import get_qdrant_client
 
                     qdrant_client = get_qdrant_client()
@@ -230,9 +228,7 @@ class MemoryService:
                         new_state=state,
                         similarity_threshold=settings.relationship_update_similarity_threshold,
                     )
-                    logger.info(
-                        f"Initial relationships created: {stats['created']} relationships"
-                    )
+                    logger.info(f"Initial relationships created: {stats['created']} relationships")
             except Exception as e:
                 # Fallback to simple approach if intelligent update fails
                 logger.error(f"Intelligent relationship management failed: {e}")
@@ -364,9 +360,7 @@ class MemoryService:
                 )
             else:
                 # Count all states
-                result = await session.execute(
-                    select(func.count()).select_from(MemoryStateDB)
-                )
+                result = await session.execute(select(func.count()).select_from(MemoryStateDB))
             count = result.scalar_one()
             logger.info(f"count_states: {count} (latest_only={latest_only})")
             return count
@@ -568,7 +562,9 @@ class MemoryService:
             logger.info(f"No similar candidates found for {new_state.topic}")
             return []
 
-        logger.info(f"Found {len(candidates)} candidates for {new_state.topic}, analyzing with LLM...")
+        logger.info(
+            f"Found {len(candidates)} candidates for {new_state.topic}, analyzing with LLM..."
+        )
 
         # Stage 2: Use LLM to analyze which ones are truly related
         # Prepare context
@@ -624,12 +620,27 @@ Only include candidates with confidence >= 0.7."""
                                     "candidate_id": {"type": "integer"},
                                     "relationship_type": {
                                         "type": "string",
-                                        "enum": ["RELATED_TO", "DEPENDS_ON", "CAUSED_BY", "SIMILAR_TO", "MENTIONS"],
+                                        "enum": [
+                                            "RELATED_TO",
+                                            "DEPENDS_ON",
+                                            "CAUSED_BY",
+                                            "SIMILAR_TO",
+                                            "MENTIONS",
+                                        ],
                                     },
-                                    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                                    "confidence": {
+                                        "type": "number",
+                                        "minimum": 0.0,
+                                        "maximum": 1.0,
+                                    },
                                     "reasoning": {"type": "string"},
                                 },
-                                "required": ["candidate_id", "relationship_type", "confidence", "reasoning"],
+                                "required": [
+                                    "candidate_id",
+                                    "relationship_type",
+                                    "confidence",
+                                    "reasoning",
+                                ],
                                 "additionalProperties": False,
                             },
                         }
@@ -664,7 +675,13 @@ Only include candidates with confidence >= 0.7."""
                     relationships = result.get("relationships", [])
 
                     # Valid relationship types (must match schema enum)
-                    VALID_TYPES = {"RELATED_TO", "DEPENDS_ON", "CAUSED_BY", "SIMILAR_TO", "MENTIONS"}
+                    VALID_TYPES = {
+                        "RELATED_TO",
+                        "DEPENDS_ON",
+                        "CAUSED_BY",
+                        "SIMILAR_TO",
+                        "MENTIONS",
+                    }
 
                     # Validate and filter relationships
                     valid_relationships = []
@@ -676,22 +693,28 @@ Only include candidates with confidence >= 0.7."""
                             logger.warning(f"Invalid relationship type '{rel_type}', skipping")
                             continue
 
-                        valid_relationships.append({
-                            "candidate_id": item["candidate_id"],
-                            "relationship_type": rel_type,
-                            "confidence": item["confidence"],
-                            "reasoning": item.get("reasoning", ""),
-                        })
+                        valid_relationships.append(
+                            {
+                                "candidate_id": item["candidate_id"],
+                                "relationship_type": rel_type,
+                                "confidence": item["confidence"],
+                                "reasoning": item.get("reasoning", ""),
+                            }
+                        )
 
                     # If all relationships were invalid, log error and create default RELATED_TO
                     if relationships and not valid_relationships and batch:
-                        logger.error(f"All relationships were invalid, creating default RELATED_TO for first candidate")
-                        valid_relationships.append({
-                            "candidate_id": 1,
-                            "relationship_type": "RELATED_TO",
-                            "confidence": 0.5,
-                            "reasoning": "Default relationship (all LLM suggestions were invalid)",
-                        })
+                        logger.error(
+                            "All relationships were invalid, creating default RELATED_TO for first candidate"
+                        )
+                        valid_relationships.append(
+                            {
+                                "candidate_id": 1,
+                                "relationship_type": "RELATED_TO",
+                                "confidence": 0.5,
+                                "reasoning": "Default relationship (all LLM suggestions were invalid)",
+                            }
+                        )
 
                     # Create relationships
                     for item in valid_relationships:
@@ -701,7 +724,9 @@ Only include candidates with confidence >= 0.7."""
                             relationship_type = item["relationship_type"]
                             confidence = item["confidence"]
 
-                            logger.info(f"Linking {new_state.topic} -> {related_state.topic} ({relationship_type}, conf={confidence:.2f})")
+                            logger.info(
+                                f"Linking {new_state.topic} -> {related_state.topic} ({relationship_type}, conf={confidence:.2f})"
+                            )
 
                             # Create relationship in Neo4j (MemoryState to MemoryState)
                             await create_evolution_edge(

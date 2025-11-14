@@ -196,13 +196,15 @@ async def get_parent_relationships(
         relationships = []
 
         async for record in result:
-            relationships.append({
-                "target_id": record["target_id"],
-                "target_topic": record["target_topic"],
-                "target_version": record["target_version"],
-                "rel_type": record["rel_type"],
-                "properties": record["properties"],
-            })
+            relationships.append(
+                {
+                    "target_id": record["target_id"],
+                    "target_topic": record["target_topic"],
+                    "target_version": record["target_version"],
+                    "rel_type": record["rel_type"],
+                    "properties": record["properties"],
+                }
+            )
 
         return relationships
 
@@ -375,8 +377,6 @@ async def delete_memory_relationship(
         )
         record = await result.single()
         return record["deleted_count"] if record else 0
-
-
 
 
 async def get_topic_history(

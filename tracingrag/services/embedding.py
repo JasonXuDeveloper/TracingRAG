@@ -1,6 +1,5 @@
 """Embedding service using sentence-transformers for vector generation with OpenAI fallback"""
 
-
 import asyncio
 from typing import Any
 
@@ -8,6 +7,9 @@ import torch
 from sentence_transformers import SentenceTransformer
 
 from tracingrag.config import settings
+from tracingrag.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # Global model cache
 _embedding_model: SentenceTransformer | None = None
@@ -42,7 +44,9 @@ def get_openai_client() -> Any:
                 _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
             except ImportError:
                 _use_openai = False
-                logger.warning("Warning: openai package not installed. Install with 'pip install openai' to use OpenAI embeddings.")
+                logger.warning(
+                    "Warning: openai package not installed. Install with 'pip install openai' to use OpenAI embeddings."
+                )
     return _openai_client
 
 

@@ -2,11 +2,12 @@
 
 import logging
 import sys
-from typing import Any
+
 
 # Color codes for terminal output
 class Colors:
     """ANSI color codes for terminal output"""
+
     RESET = "\033[0m"
     BOLD = "\033[1m"
 

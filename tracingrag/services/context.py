@@ -1,6 +1,5 @@
 """Context building for RAG pipeline"""
 
-
 from tracingrag.core.models.memory import MemoryState
 from tracingrag.core.models.rag import (
     ConsolidationLevel,
@@ -12,6 +11,9 @@ from tracingrag.core.models.rag import (
 from tracingrag.services.memory import MemoryService
 from tracingrag.services.query_analyzer import QueryAnalyzer, get_query_analyzer
 from tracingrag.services.retrieval import RetrievalService
+from tracingrag.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class ContextBuilder:
@@ -87,7 +89,9 @@ class ContextBuilder:
 
         # Create budget allocation
         budget = self._create_budget(max_tokens, query_type)
-        logger.info(f"Budget: latest={budget.latest_states_budget}, summaries={budget.summaries_budget}, buffer={budget.reserved_buffer}")
+        logger.info(
+            f"Budget: latest={budget.latest_states_budget}, summaries={budget.summaries_budget}, buffer={budget.reserved_buffer}"
+        )
 
         # Phase 1: Get latest states (always included)
         latest_states = await self._get_latest_states(
@@ -121,7 +125,9 @@ class ContextBuilder:
             context.tokens_remaining = context.max_tokens - context.tokens_used
 
         # Phase 3: Selective drill-down (if budget allows)
-        logger.info(f"Phase 3 check: tokens_remaining={context.tokens_remaining}, buffer={budget.reserved_buffer}")
+        logger.info(
+            f"Phase 3 check: tokens_remaining={context.tokens_remaining}, buffer={budget.reserved_buffer}"
+        )
         if context.tokens_remaining > budget.reserved_buffer:
             logger.info("Entering Phase 3: selective drill-down with graph traversal")
             detailed_states = await self._get_detailed_states(
@@ -366,7 +372,9 @@ class ContextBuilder:
 
         # Use dynamic limit based on actual database size (minimum 100)
         search_limit = max(total_states, 100)
-        logger.info(f"_get_latest_states: database has {total_states} states, using limit={search_limit}")
+        logger.info(
+            f"_get_latest_states: database has {total_states} states, using limit={search_limit}"
+        )
         # Use retrieval service for semantic search
         # Lower threshold for broad queries (0.3 allows more relevant results)
         results = await self.retrieval_service.semantic_search(
@@ -384,13 +392,17 @@ class ContextBuilder:
         for result in results:
             state_tokens = TokenEstimate.estimate(result.state.content).estimated_tokens
             if tokens_used + state_tokens > max_tokens:
-                logger.info(f"_get_latest_states: token budget exceeded, stopping at {len(states)} states")
+                logger.info(
+                    f"_get_latest_states: token budget exceeded, stopping at {len(states)} states"
+                )
                 break
 
             states.append(result.state)
             tokens_used += state_tokens
 
-        logger.info(f"_get_latest_states: returning {len(states)} states, tokens_used={tokens_used}")
+        logger.info(
+            f"_get_latest_states: returning {len(states)} states, tokens_used={tokens_used}"
+        )
         return states
 
     async def _get_summaries(
@@ -422,7 +434,9 @@ class ContextBuilder:
         # Use all states, no artificial limit
         retrieval_limit = total_states if total_states > 0 else 1000
 
-        logger.info(f"_get_detailed_states: calling graph_enhanced_retrieval with depth=2, limit={retrieval_limit} (dynamic based on DB count)")
+        logger.info(
+            f"_get_detailed_states: calling graph_enhanced_retrieval with depth=2, limit={retrieval_limit} (dynamic based on DB count)"
+        )
         # Use graph-enhanced retrieval for detailed context
         results = await self.retrieval_service.graph_enhanced_retrieval(
             query=query,
@@ -431,7 +445,9 @@ class ContextBuilder:
             include_historical=True,
             historical_steps=5,
         )
-        logger.info(f"_get_detailed_states: got {len(results)} results from graph_enhanced_retrieval")
+        logger.info(
+            f"_get_detailed_states: got {len(results)} results from graph_enhanced_retrieval"
+        )
 
         # Convert to states and apply token budget
         states = []
@@ -439,14 +455,18 @@ class ContextBuilder:
         seen_ids = {state.id for state in latest_states}
 
         for result in results:
-            logger.info(f"Processing result: topic={result.state.topic}, id={result.state.id}, related_states={len(result.related_states) if result.related_states else 0}")
+            logger.info(
+                f"Processing result: topic={result.state.topic}, id={result.state.id}, related_states={len(result.related_states) if result.related_states else 0}"
+            )
 
             # Skip if already included in latest states
             if result.state.id in seen_ids:
                 logger.info(f"Skipping {result.state.topic} (already in latest_states)")
                 # Still process related states even if main state is skipped
                 if result.related_states:
-                    logger.info(f"But still checking {len(result.related_states)} related states...")
+                    logger.info(
+                        f"But still checking {len(result.related_states)} related states..."
+                    )
                     # Jump to related states processing
                 else:
                     continue
@@ -461,7 +481,9 @@ class ContextBuilder:
 
             # Also include related states from graph traversal
             if result.related_states:
-                logger.info(f"Found {len(result.related_states)} related states for {result.state.topic}")
+                logger.info(
+                    f"Found {len(result.related_states)} related states for {result.state.topic}"
+                )
                 for related_info in result.related_states:
                     # Extract state_id from Neo4j node
                     related_id_str = related_info.get("memory", {}).get("id")
@@ -504,7 +526,9 @@ class ContextBuilder:
                         states.append(related_state)
                         tokens_used += related_tokens
                         seen_ids.add(related_id)
-                        logger.info(f"Added related state: {related_state.topic} (depth={related_info.get('depth', '?')})")
+                        logger.info(
+                            f"Added related state: {related_state.topic} (depth={related_info.get('depth', '?')})"
+                        )
 
                     except Exception as e:
                         # Skip invalid IDs

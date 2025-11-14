@@ -192,9 +192,9 @@ async def main():
             latest = trace[0]  # Most recent version
             print(f"      ✨ Latest (v{latest.version}): {latest.content[:100]}...")
             if "cascading_evolved" in latest.tags:
-                print(f"      🎯 CASCADING EVOLUTION TRIGGERED!")
+                print("      🎯 CASCADING EVOLUTION TRIGGERED!")
         else:
-            print(f"      ⚠️  No evolution detected")
+            print("      ⚠️  No evolution detected")
 
     # ====================================================================
     # Phase 4: More updates to test relationship manager
@@ -260,9 +260,9 @@ async def main():
 
     if promotion_result.success:
         new_state = promotion_result.new_state
-        print(f"\n   ✅ Promotion successful!")
+        print("\n   ✅ Promotion successful!")
         print(f"   📊 New version: v{new_state.version}")
-        print(f"   📝 Synthesized content:")
+        print("   📝 Synthesized content:")
         print(f"      {new_state.content[:300]}...")
         print(f"\n   📚 Synthesis sources: {len(promotion_result.synthesis_sources)}")
         print(f"   🎯 Confidence: {promotion_result.confidence:.2f}")

@@ -151,7 +151,7 @@ async def main():
             print(f"\n   ✨ {topic} EVOLVED to v{latest.version}:")
             print(f"      {latest.content[:120]}...")
             if "cascading_evolved" in latest.tags:
-                print(f"      🎯 Marked as cascading_evolved")
+                print("      🎯 Marked as cascading_evolved")
 
     print(f"\n   📊 Summary: {evolved_count}/{len(topics_affected)} topics evolved")
 
@@ -266,9 +266,9 @@ async def main():
 
     if promotion.success:
         new_state = promotion.new_state
-        print(f"\n   ✅ Quarterly review synthesized!")
+        print("\n   ✅ Quarterly review synthesized!")
         print(f"   📊 Version: v{new_state.version}")
-        print(f"   📝 Comprehensive summary:")
+        print("   📝 Comprehensive summary:")
         print(f"      {new_state.content[:400]}...")
         print(f"\n   📚 Sources: {len(promotion.synthesis_sources)}")
         print(f"   🎯 Confidence: {promotion.confidence:.2f}")
@@ -312,11 +312,13 @@ async def main():
         trace = await client.get_trace(topic)
         print(f"\n   📌 {topic}:")
         print(f"      Total versions: {len(trace)}")
-        print(f"      Evolution path:")
+        print("      Evolution path:")
         for state in trace[:4]:  # Show first 4 versions
             cascading = "🔄" if "cascading_evolved" in state.tags else ""
             pivot = "🎯" if "pivot" in state.tags else ""
-            print(f"         v{state.version} {cascading}{pivot} - {state.timestamp.strftime('%b %d %H:%M')}")
+            print(
+                f"         v{state.version} {cascading}{pivot} - {state.timestamp.strftime('%b %d %H:%M')}"
+            )
 
     print("\n" + "=" * 70)
     print("✅ Complex startup test completed!")

@@ -702,11 +702,15 @@ Respond with JSON."""
 
             # Validate required fields
             if not content:
-                raise KeyError(f"LLM response missing 'content' or 'synthesized_content' field. Response: {result}")
+                raise KeyError(
+                    f"LLM response missing 'content' or 'synthesized_content' field. Response: {result}"
+                )
             if not reasoning:
                 raise KeyError(f"LLM response missing 'reasoning' field. Response: {result}")
             if confidence is None:
-                raise KeyError(f"LLM response missing 'confidence' or 'confidence_score' field. Response: {result}")
+                raise KeyError(
+                    f"LLM response missing 'confidence' or 'confidence_score' field. Response: {result}"
+                )
 
             return {
                 "content": content,
@@ -715,7 +719,9 @@ Respond with JSON."""
             }
         except json.JSONDecodeError as e:
             content_preview = response.content[:500] if response else "No response received"
-            raise Exception(f"Failed to parse LLM response as JSON: {e}. Content: {content_preview}")
+            raise Exception(
+                f"Failed to parse LLM response as JSON: {e}. Content: {content_preview}"
+            )
         except KeyError as e:
             content_preview = response.content[:500] if response else "No response received"
             raise Exception(f"LLM response missing required field: {e}. Content: {content_preview}")
@@ -853,7 +859,8 @@ Respond with JSON."""
         """
         # Check for explicit reference markers
         has_references = any(
-            marker in content.lower() for marker in ["source", "according to", "version", "stated", "based on"]
+            marker in content.lower()
+            for marker in ["source", "according to", "version", "stated", "based on"]
         )
 
         # Only require citations when sources are many (>10)
@@ -864,7 +871,9 @@ Respond with JSON."""
         issues = []
         recommendations = []
         if not has_references and len(sources) > 5:
-            recommendations.append("Consider adding source references when synthesizing from multiple sources")
+            recommendations.append(
+                "Consider adding source references when synthesizing from multiple sources"
+            )
 
         return QualityCheck(
             check_type=QualityCheckType.CITATION,

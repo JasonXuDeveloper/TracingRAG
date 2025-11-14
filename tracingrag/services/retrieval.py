@@ -78,6 +78,7 @@ class RetrievalService:
         """Lazy-load memory service"""
         if self._memory_service is None:
             from tracingrag.services.memory import MemoryService
+
             self._memory_service = MemoryService()
         return self._memory_service
 
@@ -170,10 +171,10 @@ class RetrievalService:
         # Get initial semantic matches or use provided start nodes
         if start_nodes:
             # If start nodes provided, use them instead of semantic search
+            from sqlalchemy import select
+
             from tracingrag.storage.database import get_session
             from tracingrag.storage.models import MemoryStateDB
-            from sqlalchemy import select
-            from sqlalchemy.orm import selectinload
 
             async with get_session() as session:
                 result = await session.execute(
@@ -188,8 +189,7 @@ class RetrievalService:
 
             # Create results after session is closed
             initial_matches = [
-                RetrievalResult(state=state, score=1.0, retrieval_type="direct")
-                for state in states
+                RetrievalResult(state=state, score=1.0, retrieval_type="direct") for state in states
             ]
         else:
             # Get initial semantic matches
@@ -214,7 +214,9 @@ class RetrievalService:
                 max_depth=depth,
                 limit=graph_limit,  # Dynamic limit based on total states in DB
             )
-            logger.info(f"Found {len(related_states)} related states from Neo4j for {match.state.topic}")
+            logger.info(
+                f"Found {len(related_states)} related states from Neo4j for {match.state.topic}"
+            )
 
             # Get historical context from trace
             historical_context = []

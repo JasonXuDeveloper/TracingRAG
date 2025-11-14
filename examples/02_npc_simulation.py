@@ -506,8 +506,10 @@ async def simulate_npc_interactions():
         )
         print("   ✅ Historical event: Major bandit raid 3 years ago (shaped everyone)")
 
-        print(f"\n   📊 Total initial memories: 5 NPCs + 10 relationships + 15 historical/contextual")
-        print(f"   📊 = 30 interconnected memory states!")
+        print(
+            "\n   📊 Total initial memories: 5 NPCs + 10 relationships + 15 historical/contextual"
+        )
+        print("   📊 = 30 interconnected memory states!")
         print("   🕸️  Dense memory network with multiple layers of connections!")
 
         # ====================================================================
@@ -517,7 +519,7 @@ async def simulate_npc_interactions():
         print()
 
         # Player meets Elena
-        elena_player_day1 = await client.create_memory(
+        await client.create_memory(
             topic="elena_player_relationship",
             content=(
                 "Player (adventurer named 'Aria') visited Elena's store for the first time. "
@@ -533,7 +535,7 @@ async def simulate_npc_interactions():
         print("   💬 Player meets Elena (positive)")
 
         # Player meets Marcus
-        marcus_player_day1 = await client.create_memory(
+        await client.create_memory(
             topic="marcus_player_relationship",
             content=(
                 "Player 'Aria' approached Marcus at the guard post. Marcus was suspicious "
@@ -567,7 +569,7 @@ async def simulate_npc_interactions():
         print("📅 Day 2: Merchant rivalry escalates...")
         print()
 
-        silas_undercuts_elena = await client.create_memory(
+        await client.create_memory(
             topic="npc_silas_merchant",
             content=(
                 "Silas started a price war with Elena. He's selling basic goods at 30% below "
@@ -588,7 +590,7 @@ async def simulate_npc_interactions():
         print("📅 Day 3: MAJOR DISCOVERY - This should trigger cascading evolution!")
         print()
 
-        lyra_discovers_secret = await client.create_memory(
+        await client.create_memory(
             topic="npc_lyra_barmaid",
             content=(
                 "CRITICAL DISCOVERY: Lyra overheard Silas meeting with bandits in a back room "
@@ -629,7 +631,7 @@ async def simulate_npc_interactions():
                 print(f"\n   ✨ {topic} EVOLVED to v{latest.version}:")
                 print(f"      {latest.content[:150]}...")
                 if "cascading_evolved" in latest.tags:
-                    print(f"      🎯 Tagged as cascading_evolved!")
+                    print("      🎯 Tagged as cascading_evolved!")
             else:
                 print(f"\n   ⚠️  {topic}: No evolution (v1)")
 
@@ -641,7 +643,7 @@ async def simulate_npc_interactions():
         print("📅 Day 4: Information spreads...")
         print()
 
-        thomas_tells_marcus = await client.create_memory(
+        await client.create_memory(
             topic="thomas_marcus_communication",
             content=(
                 "Thomas immediately told Marcus about what Lyra discovered. "
@@ -655,7 +657,7 @@ async def simulate_npc_interactions():
         print("   🗣️  Thomas informs Marcus about Lyra's discovery")
 
         # Marcus talks to Elena
-        marcus_warns_elena = await client.create_memory(
+        await client.create_memory(
             topic="marcus_elena_relationship",
             content=(
                 "Marcus visited Elena's shop to warn her about Silas. "
@@ -676,7 +678,7 @@ async def simulate_npc_interactions():
         print()
 
         # Player helps Marcus
-        player_helps_raid = await client.create_memory(
+        await client.create_memory(
             topic="marcus_player_relationship",
             content=(
                 "Aria volunteered to help Marcus with the raid on Silas's warehouse. "
@@ -692,7 +694,7 @@ async def simulate_npc_interactions():
         print("   ⚔️  Player saves Marcus's life in raid")
 
         # Elena's reaction to player helping
-        elena_player_day5 = await client.create_memory(
+        await client.create_memory(
             topic="elena_player_relationship",
             content=(
                 "Marcus brought Aria to Elena's shop after the raid and explained how "
@@ -727,7 +729,7 @@ async def simulate_npc_interactions():
         print("📅 Day 7: Major relationship development...")
         print()
 
-        marcus_confesses = await client.create_memory(
+        await client.create_memory(
             topic="marcus_elena_relationship",
             content=(
                 "Marcus finally confessed his feelings to Elena. He told her he's been "
@@ -761,9 +763,9 @@ async def simulate_npc_interactions():
 
         if promotion.success:
             new_state = promotion.new_state
-            print(f"   ✅ Promotion successful!")
+            print("   ✅ Promotion successful!")
             print(f"   📊 New version: v{new_state.version}")
-            print(f"   📝 Synthesized content:")
+            print("   📝 Synthesized content:")
             print(f"      {new_state.content[:400]}...")
             print(f"\n   📚 Sources: {len(promotion.synthesis_sources)}")
             print(f"   🎯 Confidence: {promotion.confidence:.2f}")
@@ -815,7 +817,9 @@ async def simulate_npc_interactions():
             for state in trace[:3]:  # Show first 3
                 tags_str = ", ".join(state.tags[:4])
                 cascading = "🔄" if "cascading_evolved" in state.tags else ""
-                print(f"      v{state.version} {cascading} - {state.timestamp.strftime('%H:%M:%S')}")
+                print(
+                    f"      v{state.version} {cascading} - {state.timestamp.strftime('%H:%M:%S')}"
+                )
                 print(f"         Tags: [{tags_str}]")
                 print(f"         {state.content[:100]}...")
 

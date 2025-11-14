@@ -32,7 +32,9 @@ async def main():
     for topic, states in sorted(topics.items()):
         print(f"📌 {topic}: {len(states)} version(s)")
         for state in sorted(states, key=lambda s: s.version):
-            print(f"   v{state.version} - {state.id} - {state.timestamp.strftime('%Y-%m-%d %H:%M')}")
+            print(
+                f"   v{state.version} - {state.id} - {state.timestamp.strftime('%Y-%m-%d %H:%M')}"
+            )
             print(f"      {state.content[:80]}...")
 
     if not memories:
@@ -67,7 +69,7 @@ async def main():
             print(f"   ✗ Failed to delete {memory.topic} v{memory.version}: {e}")
 
     print("\n" + "=" * 70)
-    print(f"✅ Cleanup complete!")
+    print("✅ Cleanup complete!")
     print(f"   Deleted: {deleted_count}")
     print(f"   Failed:  {failed_count}")
     print("=" * 70)

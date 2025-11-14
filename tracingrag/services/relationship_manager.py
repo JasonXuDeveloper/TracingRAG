@@ -5,7 +5,7 @@ ensuring relationships stay current and relevant across large-scale knowledge gr
 """
 
 import json
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from tracingrag.config import settings
@@ -15,7 +15,6 @@ from tracingrag.storage.database import get_session
 from tracingrag.storage.models import MemoryStateDB
 from tracingrag.storage.neo4j_client import (
     create_memory_relationship,
-    delete_memory_relationship,
     get_latest_version_of_topic,
     get_parent_relationships,
 )
@@ -24,7 +23,7 @@ from tracingrag.utils.logger import get_logger
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
-    from tracingrag.services.memory import MemoryService
+    pass
 
 
 class RelationshipManager:
@@ -78,7 +77,9 @@ class RelationshipManager:
         total_states = await memory_service.count_states(latest_only=False)
 
         search_limit = max(total_states, 1000)  # Use actual count, minimum 1000
-        logger.info(f"   Database has {total_states} states, using limit={search_limit} for full search")
+        logger.info(
+            f"   Database has {total_states} states, using limit={search_limit} for full search"
+        )
 
         # Step 3: Comprehensive semantic search (find all relevant states)
         retrieval_service = RetrievalService()
@@ -159,7 +160,9 @@ class RelationshipManager:
                         properties=rel.get("properties", {}),
                     )
                     stats["updated"] += 1
-                    logger.info(f"   ✓ Updated: {rel['target_topic']} v{rel['target_version']} → v{decision['new_version']}")
+                    logger.info(
+                        f"   ✓ Updated: {rel['target_topic']} v{rel['target_version']} → v{decision['new_version']}"
+                    )
                 else:
                     # Fallback: keep existing if no newer version available
                     await create_memory_relationship(
@@ -169,7 +172,9 @@ class RelationshipManager:
                         properties=rel.get("properties", {}),
                     )
                     stats["kept"] += 1
-                    logger.warning(f"   ⚠ Kept existing (no newer version): {rel['target_topic']} v{rel['target_version']}")
+                    logger.warning(
+                        f"   ⚠ Kept existing (no newer version): {rel['target_topic']} v{rel['target_version']}"
+                    )
 
             elif action == "remove_existing":
                 # Don't create this old relationship
@@ -186,7 +191,9 @@ class RelationshipManager:
                     properties={"confidence": decision.get("confidence", 0.8)},
                 )
                 stats["created"] += 1
-                logger.info(f"   + Created: {decision['relationship_type']} → {decision['target_topic']}")
+                logger.info(
+                    f"   + Created: {decision['relationship_type']} → {decision['target_topic']}"
+                )
 
         logger.info(
             f"Summary: {stats['kept']} kept, {stats['updated']} updated, "
@@ -219,14 +226,18 @@ class RelationshipManager:
         # Split candidates into batches
         total_batches = (len(candidate_states) + batch_size - 1) // batch_size
 
-        logger.info(f"   Processing {len(candidate_states)} candidates in {total_batches} batch(es)")
+        logger.info(
+            f"   Processing {len(candidate_states)} candidates in {total_batches} batch(es)"
+        )
 
         for batch_idx in range(total_batches):
             start_idx = batch_idx * batch_size
             end_idx = min(start_idx + batch_size, len(candidate_states))
             candidate_batch = candidate_states[start_idx:end_idx]
 
-            logger.info(f"   Batch {batch_idx + 1}/{total_batches}: analyzing {len(candidate_batch)} candidates + {len(existing_relationships)} existing")
+            logger.info(
+                f"   Batch {batch_idx + 1}/{total_batches}: analyzing {len(candidate_batch)} candidates + {len(existing_relationships)} existing"
+            )
 
             batch_decisions = await self._llm_comprehensive_analysis(
                 new_state=new_state,
@@ -275,7 +286,9 @@ class RelationshipManager:
                     existing_contents[rel["target_id"]] = target.content[:250]
 
         # Build prompt sections
-        new_content_desc = f"**NEW STATE**\nTopic: {new_state.topic}\nContent: {new_state.content}\n"
+        new_content_desc = (
+            f"**NEW STATE**\nTopic: {new_state.topic}\nContent: {new_state.content}\n"
+        )
 
         # Section 1: Existing relationships to review
         existing_rel_desc = []
@@ -354,9 +367,13 @@ Respond with JSON (only include actions to take, skip non-actions):
         input_tokens = self._estimate_tokens(prompt)
         # Output: ~50 tokens per decision, plus overhead
         estimated_output = (len(existing_relationships) + len(candidate_states)) * 50 + 500
-        max_tokens = max(4000, min(estimated_output * 2, 16000))  # Between 4k-16k (generous to avoid truncation)
+        max_tokens = max(
+            4000, min(estimated_output * 2, 16000)
+        )  # Between 4k-16k (generous to avoid truncation)
 
-        logger.debug(f"Estimated input: {input_tokens} tokens, output: {estimated_output} tokens, using max_tokens={max_tokens}")
+        logger.debug(
+            f"Estimated input: {input_tokens} tokens, output: {estimated_output} tokens, using max_tokens={max_tokens}"
+        )
 
         schema = {
             "name": "comprehensive_relationship_analysis",
@@ -505,11 +522,13 @@ Respond with JSON (only include actions to take, skip non-actions):
             analyzed_indices = {d["index"] - 1 for d in result.get("existing", [])}
             for idx, rel in enumerate(existing_relationships):
                 if idx not in analyzed_indices:
-                    all_decisions.append({
-                        "action": "keep_existing",
-                        "relationship": rel,
-                        "reasoning": "auto-kept (not analyzed)",
-                    })
+                    all_decisions.append(
+                        {
+                            "action": "keep_existing",
+                            "relationship": rel,
+                            "reasoning": "auto-kept (not analyzed)",
+                        }
+                    )
 
             # Process new relationship decisions
             for decision in result.get("new", []):
@@ -518,14 +537,16 @@ Respond with JSON (only include actions to take, skip non-actions):
                     continue
 
                 candidate = candidate_states[cidx]
-                all_decisions.append({
-                    "action": "create_new",
-                    "target_id": str(candidate.state.id),
-                    "target_topic": candidate.state.topic,
-                    "relationship_type": decision["relationship_type"],
-                    "reasoning": decision["reasoning"],
-                    "confidence": candidate.score,
-                })
+                all_decisions.append(
+                    {
+                        "action": "create_new",
+                        "target_id": str(candidate.state.id),
+                        "target_topic": candidate.state.topic,
+                        "relationship_type": decision["relationship_type"],
+                        "reasoning": decision["reasoning"],
+                        "confidence": candidate.score,
+                    }
+                )
 
             return all_decisions
 
@@ -536,7 +557,6 @@ Respond with JSON (only include actions to take, skip non-actions):
                 {"action": "keep_existing", "relationship": rel, "reasoning": "fallback"}
                 for rel in existing_relationships
             ]
-
 
     async def create_initial_relationships(
         self,
@@ -573,12 +593,13 @@ Respond with JSON (only include actions to take, skip non-actions):
 
         # Filter out self
         candidates = [
-            s for s in similar_states
+            s
+            for s in similar_states
             if s.state.id != new_state.id and s.state.topic != new_state.topic
         ]
 
         if not candidates:
-            logger.info(f"   No candidates found for initial relationships")
+            logger.info("   No candidates found for initial relationships")
             return stats
 
         logger.info(f"   Found {len(candidates)} candidates, analyzing with LLM...")
@@ -629,7 +650,9 @@ Respond with JSON (only include relationships to create):
         estimated_output = len(candidates) * 50 + 500  # ~50 tokens per decision
         max_tokens = max(2000, min(estimated_output * 2, 10000))  # Between 2k-10k (generous)
 
-        logger.debug(f"Initial relationships: estimated input={input_tokens}, output={estimated_output}, max_tokens={max_tokens}")
+        logger.debug(
+            f"Initial relationships: estimated input={input_tokens}, output={estimated_output}, max_tokens={max_tokens}"
+        )
 
         schema = {
             "name": "initial_relationship_creation",
@@ -674,7 +697,7 @@ Respond with JSON (only include relationships to create):
 
             # Check if response is empty
             if not response.content or not response.content.strip():
-                logger.error(f"Empty LLM response for initial relationships")
+                logger.error("Empty LLM response for initial relationships")
                 return stats
 
             # Parse JSON with error handling
@@ -762,7 +785,9 @@ Respond with JSON (only include relationships to create):
                     f"   ✓ Created: {new_state.topic} -[{rel_type}]-> {candidate.state.topic}"
                 )
 
-            logger.info(f"Initial relationship creation completed: {stats['created']} relationships created")
+            logger.info(
+                f"Initial relationship creation completed: {stats['created']} relationships created"
+            )
 
         except Exception as e:
             logger.error(f"Failed to create initial relationships: {e}")

@@ -1,6 +1,5 @@
 """Python client for TracingRAG REST API"""
 
-
 from datetime import datetime
 from typing import Any
 
@@ -411,7 +410,9 @@ class TracingRAGClient:
         new_state = None
         promoted_from_version = None
         if api_response.get("new_state_id"):
-            new_state_response = self._client.get(f"/api/v1/memories/{api_response['new_state_id']}")
+            new_state_response = self._client.get(
+                f"/api/v1/memories/{api_response['new_state_id']}"
+            )
             new_state_response.raise_for_status()
             new_state = MemoryState(**new_state_response.json())
             promoted_from_version = api_response.get("previous_state_id")
@@ -652,13 +653,17 @@ class AsyncTracingRAGClient:
         new_state = None
         promoted_from_version = None
         if api_response.get("new_state_id"):
-            new_state_response = await self._client.get(f"/api/v1/memories/{api_response['new_state_id']}")
+            new_state_response = await self._client.get(
+                f"/api/v1/memories/{api_response['new_state_id']}"
+            )
             new_state_response.raise_for_status()
             new_state = MemoryState(**new_state_response.json())
             promoted_from_version = api_response.get("previous_state_id")
             if promoted_from_version:
                 # Fetch the previous state version
-                prev_state_response = await self._client.get(f"/api/v1/memories/{promoted_from_version}")
+                prev_state_response = await self._client.get(
+                    f"/api/v1/memories/{promoted_from_version}"
+                )
                 if prev_state_response.status_code == 200:
                     prev_state = MemoryState(**prev_state_response.json())
                     promoted_from_version = prev_state.version
