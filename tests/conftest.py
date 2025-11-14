@@ -3,12 +3,16 @@
 import os
 from collections.abc import AsyncGenerator
 
-import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
-# Set test environment variables before importing config
+# Set test environment variables FIRST, before any imports
 os.environ["OPENROUTER_API_KEY"] = "test_key_for_testing"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+# Force disable OpenAI embeddings for tests - use local model instead
+if "OPENAI_API_KEY" in os.environ:
+    del os.environ["OPENAI_API_KEY"]
+os.environ["OPENAI_API_KEY"] = ""  # Set to empty string to ensure it's disabled
+
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tracingrag.storage.database import Base, get_engine
 from tracingrag.storage.models import MemoryStateDB
@@ -23,6 +27,19 @@ async def initialize_global_db():
         await conn.run_sync(Base.metadata.create_all)
     yield
     await global_engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+async def cleanup_global_db():
+    """Clean up global database after each test to prevent state pollution"""
+    yield  # Let the test run first
+
+    # Clean up after the test
+    global_engine = get_engine()
+    async with global_engine.begin() as conn:
+        # Delete all data from tables to prevent test pollution
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
 
 
 @pytest.fixture(scope="session")
