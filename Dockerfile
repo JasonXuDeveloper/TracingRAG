@@ -21,6 +21,7 @@ RUN poetry config virtualenvs.create false \
     && poetry install --no-interaction --no-ansi --no-root --only main
 
 # Copy application code
+COPY README.md ./
 COPY tracingrag ./tracingrag
 
 # Install the package
