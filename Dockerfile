@@ -18,7 +18,9 @@ COPY pyproject.toml ./
 
 # Install dependencies (without dev dependencies in production)
 RUN poetry config virtualenvs.create false \
-    && poetry install --no-interaction --no-ansi --no-root --only main
+    && poetry install --no-interaction --no-ansi --no-root --only main \
+    && poetry cache clear pypi --all \
+    && rm -rf /root/.cache/pypoetry
 
 # Copy application code
 COPY README.md ./

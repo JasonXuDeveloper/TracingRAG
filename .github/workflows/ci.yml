@@ -160,6 +160,8 @@ jobs:
           image-ref: ghcr.io/jasonxudeveloper/tracingrag:main
           format: "sarif"
           output: "trivy-results.sarif"
+          timeout: "15m0s"
+          skip-dirs: "/root/.cache"
 
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
