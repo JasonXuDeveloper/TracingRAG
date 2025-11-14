@@ -44,14 +44,29 @@ See [DESIGN.md](DESIGN.md) for detailed architecture and design decisions.
 
 ## Tech Stack
 
+**Required:**
 - **Python 3.11+** with FastAPI and asyncio
 - **Qdrant** for vector storage and semantic search
 - **Neo4j** for graph database and relationship tracking
 - **PostgreSQL + TimescaleDB** for document storage and temporal queries
-- **Redis** for caching and working memory
-- **OpenRouter/OpenAI API** for LLM access (structured output, query analysis, synthesis)
-- **SentenceTransformers** for local embeddings (all-mpnet-base-v2)
-- **Prometheus** for metrics and monitoring
+- **OpenRouter API** for LLM access (structured output, query analysis, synthesis)
+
+**Embeddings (choose one):**
+- **SentenceTransformers** (default, free, runs locally)
+  - `all-mpnet-base-v2` - English, 768 dim (default)
+  - `paraphrase-multilingual-mpnet-base-v2` - 50+ languages, 768 dim
+- **OpenAI Embeddings** (optional, best multilingual support)
+  - `text-embedding-3-small` - 100+ languages, 1536 dim
+  - `text-embedding-3-large` - 100+ languages, 3072 dim
+  - Automatic fallback if local model fails
+
+**Optional:**
+- **Redis** for caching (embeddings, queries, working memory)
+  - If not available: uses in-memory LRU cache (1000 items max)
+  - Recommended for production
+
+**Monitoring:**
+- **Prometheus** for metrics
 - **Structlog** for structured JSON logging
 
 ## Quick Start
@@ -80,11 +95,34 @@ curl -sSL https://install.python-poetry.org | python3 -
 poetry install
 ```
 
-4. Copy environment variables:
+4. Copy environment variables and configure:
 ```bash
 cp .env.example .env
-# Edit .env with your API keys and configuration
+# Edit .env with your configuration
 ```
+
+**Required configuration:**
+- `OPENROUTER_API_KEY` - Your OpenRouter API key for LLM access
+
+**Embedding configuration (choose one):**
+
+*Option 1: Local embeddings (default, free)*
+```env
+# English only (default)
+EMBEDDING_MODEL=sentence-transformers/all-mpnet-base-v2
+
+# OR for multilingual support (50+ languages)
+EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-mpnet-base-v2
+```
+
+*Option 2: OpenAI embeddings (best multilingual, API costs)*
+```env
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small  # 100+ languages
+```
+
+**Optional configuration:**
+- Redis caching (recommended for production): Already configured in `docker-compose.yml`
 
 5. Start infrastructure services:
 ```bash

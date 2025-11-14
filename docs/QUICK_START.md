@@ -28,8 +28,7 @@ poetry install
 # Copy environment template
 cp .env.example .env
 
-# Edit .env and add your OpenRouter API key
-# Minimum required: OPENROUTER_API_KEY
+# Edit .env and configure
 nano .env  # or use your preferred editor
 ```
 
@@ -37,6 +36,25 @@ nano .env  # or use your preferred editor
 ```env
 OPENROUTER_API_KEY=sk-or-v1-...
 ```
+
+**Embedding configuration (choose one):**
+
+*Option 1: Local embeddings (default, free)*
+```env
+# English only (default, no changes needed)
+EMBEDDING_MODEL=sentence-transformers/all-mpnet-base-v2
+
+# OR for multilingual support (50+ languages)
+EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-mpnet-base-v2
+```
+
+*Option 2: OpenAI embeddings (best multilingual, API costs)*
+```env
+OPENAI_API_KEY=sk-...  # Your OpenAI API key
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small  # 100+ languages
+```
+
+**Note:** If `OPENAI_API_KEY` is set, TracingRAG will use OpenAI embeddings. Otherwise, it uses the local model specified in `EMBEDDING_MODEL`.
 
 ## Step 3: Start Infrastructure Services
 
