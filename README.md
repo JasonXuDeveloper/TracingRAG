@@ -73,7 +73,12 @@ See [DESIGN.md](DESIGN.md) for detailed architecture and design decisions.
 
 ### Prerequisites
 
-- Python 3.11+
+- **Python 3.11+** (including Python 3.14)
+  - **Note for Python 3.14+**: Some dependencies (like `greenlet`) need to compile from source since pre-built wheels aren't available yet. You'll need:
+    - macOS: `xcode-select --install`
+    - Ubuntu/Debian: `sudo apt install build-essential python3-dev`
+    - Other systems: C compiler and Python development headers
+  - **Recommended**: Use Python 3.11-3.13 for the smoothest installation (pre-built wheels available)
 - Docker and Docker Compose
 - Poetry (Python package manager)
 
@@ -90,12 +95,28 @@ cd TracingRAG
 curl -sSL https://install.python-poetry.org | python3 -
 ```
 
-3. Install dependencies:
+3. **(Optional) If you have multiple Python versions installed:**
+```bash
+# Poetry will automatically use the correct Python version
+# But you can specify which one explicitly:
+poetry env use python3.11   # Use Python 3.11
+# OR
+poetry env use python3.12   # Use Python 3.12
+# OR
+poetry env use python3.13   # Use Python 3.13
+# OR
+poetry env use python3.14   # Use Python 3.14 (requires build tools, see prerequisites)
+
+# Check which Python is being used:
+poetry env info
+```
+
+4. Install dependencies:
 ```bash
 poetry install
 ```
 
-4. Copy environment variables and configure:
+5. Copy environment variables and configure:
 ```bash
 cp .env.example .env
 # Edit .env with your configuration
@@ -124,17 +145,17 @@ OPENAI_EMBEDDING_MODEL=text-embedding-3-small  # 100+ languages
 **Optional configuration:**
 - Redis caching (recommended for production): Already configured in `docker-compose.yml`
 
-5. Start infrastructure services:
+6. Start infrastructure services:
 ```bash
 docker-compose up -d
 ```
 
-6. Run database migrations:
+7. Run database migrations:
 ```bash
 poetry run alembic upgrade head
 ```
 
-7. Start the API server:
+8. Start the API server:
 ```bash
 poetry run uvicorn tracingrag.api.main:app --reload
 ```
