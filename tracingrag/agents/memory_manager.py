@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from tracingrag.agents.models import MemorySuggestion
+from tracingrag.config import settings
 from tracingrag.core.models.rag import LLMRequest
 from tracingrag.services.graph import GraphService
 from tracingrag.services.llm import LLMClient, get_llm_client
@@ -18,7 +19,7 @@ class MemoryManagerAgent:
         llm_client: LLMClient | None = None,
         memory_service: MemoryService | None = None,
         graph_service: GraphService | None = None,
-        manager_model: str = "deepseek/deepseek-chat-v3-0324:free",
+        manager_model: str | None = None,
     ):
         """
         Initialize memory manager agent
@@ -32,7 +33,7 @@ class MemoryManagerAgent:
         self.llm_client = llm_client or get_llm_client()
         self.memory_service = memory_service or MemoryService()
         self.graph_service = graph_service or GraphService()
-        self.manager_model = manager_model
+        self.manager_model = manager_model or settings.manager_model
 
     async def analyze_memory_state(
         self, topic: str, max_versions: int = 10

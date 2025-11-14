@@ -6,6 +6,7 @@ from tracingrag.agents.memory_manager import MemoryManagerAgent
 from tracingrag.agents.models import AgentResult, AgentState
 from tracingrag.agents.query_planner import QueryPlannerAgent
 from tracingrag.agents.tools import AgentTools
+from tracingrag.config import settings
 from tracingrag.core.models.rag import LLMRequest
 from tracingrag.services.embedding import generate_embedding
 from tracingrag.services.llm import LLMClient, get_llm_client
@@ -20,7 +21,7 @@ class AgentService:
         tools: AgentTools | None = None,
         query_planner: QueryPlannerAgent | None = None,
         memory_manager: MemoryManagerAgent | None = None,
-        answer_model: str = "anthropic/claude-3.5-sonnet",
+        answer_model: str | None = None,
         max_answer_tokens: int = 16000,
     ):
         """
@@ -38,7 +39,7 @@ class AgentService:
         self._query_planner = query_planner
         self._memory_manager = memory_manager
         self.tools = tools or AgentTools()
-        self.answer_model = answer_model
+        self.answer_model = answer_model or settings.default_llm_model
         self.max_answer_tokens = max_answer_tokens
 
     @property

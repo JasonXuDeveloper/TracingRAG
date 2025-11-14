@@ -7,6 +7,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 
+from tracingrag.config import settings
 from tracingrag.core.models.graph import RelationshipType
 from tracingrag.core.models.promotion import (
     Conflict,
@@ -43,8 +44,8 @@ class PromotionService:
         graph_service: GraphService | None = None,
         retrieval_service: RetrievalService | None = None,
         llm_client: LLMClient | None = None,
-        synthesis_model: str = "anthropic/claude-3.5-sonnet",
-        analysis_model: str = "deepseek/deepseek-chat-v3-0324:free",
+        synthesis_model: str | None = None,
+        analysis_model: str | None = None,
         max_synthesis_tokens: int = 16000,
         policy: PromotionPolicy | None = None,
     ):
@@ -65,8 +66,8 @@ class PromotionService:
         self.graph_service = graph_service or GraphService()
         self.retrieval_service = retrieval_service or RetrievalService()
         self._llm_client = llm_client  # Store provided client or None
-        self.synthesis_model = synthesis_model
-        self.analysis_model = analysis_model
+        self.synthesis_model = synthesis_model or settings.default_llm_model
+        self.analysis_model = analysis_model or settings.analysis_model
         self.max_synthesis_tokens = max_synthesis_tokens
         self.policy = policy or PromotionPolicy()
 

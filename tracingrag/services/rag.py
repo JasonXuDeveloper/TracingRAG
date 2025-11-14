@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from tracingrag.config import settings
 from tracingrag.core.models.rag import (
     LLMRequest,
     RAGContext,
@@ -293,7 +294,7 @@ Use this to provide accurate, well-reasoned answers."""
 # Convenience function for quick queries
 async def query_rag(
     query: str,
-    model: str = "anthropic/claude-3.5-sonnet",
+    model: str | None = None,
     temperature: float = 0.7,
     max_tokens: int = 4096,
 ) -> RAGResponse:
@@ -312,7 +313,7 @@ async def query_rag(
     rag_service = RAGService()
     return await rag_service.query(
         query=query,
-        model=model,
+        model=model or settings.default_llm_model,
         temperature=temperature,
         max_tokens=max_tokens,
     )

@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     default_llm_model: str = "anthropic/claude-3.5-sonnet"
     fallback_llm_model: str = "openai/gpt-4-turbo"
+    analysis_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For conflict detection, quality checks
+    evaluation_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For promotion evaluation
+    query_analyzer_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For query analysis
+    planner_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For agent query planning
+    manager_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For agent memory management
 
     # Embedding Configuration
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"

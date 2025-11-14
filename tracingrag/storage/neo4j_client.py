@@ -1,5 +1,6 @@
 """Neo4j graph database client for knowledge graph storage and relationship tracking"""
 
+import json
 from typing import Any
 from uuid import UUID
 
@@ -111,9 +112,12 @@ async def create_memory_node(
         version: Version number
         timestamp: ISO timestamp string
         storage_tier: Storage tier (active/archived/cold)
-        metadata: Additional metadata
+        metadata: Additional metadata (will be stored as JSON string)
     """
     driver = get_neo4j_driver()
+
+    # Convert metadata dict to JSON string for Neo4j storage
+    metadata_json = json.dumps(metadata) if metadata else "{}"
 
     async with driver.session(database=settings.neo4j_database) as session:
         await session.run(
@@ -134,7 +138,7 @@ async def create_memory_node(
             version=version,
             timestamp=timestamp,
             storage_tier=storage_tier,
-            metadata=metadata or {},
+            metadata=metadata_json,
         )
 
 
@@ -150,15 +154,18 @@ async def create_evolution_edge(
         parent_id: UUID of the parent state
         child_id: UUID of the child state
         relationship_type: Type of relationship (EVOLVED_TO, SUPERSEDED_BY, etc.)
-        edge_properties: Additional properties for the relationship
+        edge_properties: Additional properties for the relationship (will be stored as JSON string)
     """
     driver = get_neo4j_driver()
+
+    # Convert edge properties dict to JSON string for Neo4j storage
+    properties_json = json.dumps(edge_properties) if edge_properties else "{}"
 
     async with driver.session(database=settings.neo4j_database) as session:
         query = f"""
         MATCH (parent:MemoryState {{id: $parent_id}})
         MATCH (child:MemoryState {{id: $child_id}})
-        CREATE (parent)-[r:{relationship_type} $properties]->(child)
+        CREATE (parent)-[r:{relationship_type} {{properties: $properties}}]->(child)
         RETURN r
         """
 
@@ -166,7 +173,7 @@ async def create_evolution_edge(
             query,
             parent_id=str(parent_id),
             child_id=str(child_id),
-            properties=edge_properties or {},
+            properties=properties_json,
         )
 
 
@@ -180,19 +187,22 @@ async def create_entity_node(
     Args:
         entity_type: Type of entity (e.g., Character, Location, Concept)
         entity_name: Name of the entity
-        properties: Additional properties for the entity
+        properties: Additional properties for the entity (will be stored as JSON string)
     """
     driver = get_neo4j_driver()
+
+    # Convert properties dict to JSON string for Neo4j storage
+    properties_json = json.dumps(properties) if properties else "{}"
 
     async with driver.session(database=settings.neo4j_database) as session:
         await session.run(
             """
             MERGE (e:Entity {type: $entity_type, name: $entity_name})
-            SET e += $properties
+            SET e.properties = $properties
             """,
             entity_type=entity_type,
             entity_name=entity_name,
-            properties=properties or {},
+            properties=properties_json,
         )
 
 
@@ -210,15 +220,18 @@ async def create_entity_relationship(
         entity_type: Type of entity
         entity_name: Name of entity
         relationship_type: Type of relationship (MENTIONS, DEFINES, MODIFIES, etc.)
-        properties: Additional properties for the relationship
+        properties: Additional properties for the relationship (will be stored as JSON string)
     """
     driver = get_neo4j_driver()
+
+    # Convert properties dict to JSON string for Neo4j storage
+    properties_json = json.dumps(properties) if properties else "{}"
 
     async with driver.session(database=settings.neo4j_database) as session:
         query = f"""
         MATCH (m:MemoryState {{id: $state_id}})
         MERGE (e:Entity {{type: $entity_type, name: $entity_name}})
-        CREATE (m)-[r:{relationship_type} $properties]->(e)
+        CREATE (m)-[r:{relationship_type} {{properties: $properties}}]->(e)
         RETURN r
         """
 
@@ -227,7 +240,7 @@ async def create_entity_relationship(
             state_id=str(state_id),
             entity_type=entity_type,
             entity_name=entity_name,
-            properties=properties or {},
+            properties=properties_json,
         )
 
 

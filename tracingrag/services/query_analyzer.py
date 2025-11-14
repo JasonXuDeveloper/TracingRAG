@@ -3,6 +3,7 @@
 import json
 from typing import Any
 
+from tracingrag.config import settings
 from tracingrag.core.models.rag import ConsolidationLevel, QueryType
 from tracingrag.services.llm import LLMClient, get_llm_client
 
@@ -13,17 +14,17 @@ class QueryAnalyzer:
     def __init__(
         self,
         llm_client: LLMClient | None = None,
-        default_model: str = "deepseek/deepseek-chat-v3-0324:free",
+        default_model: str | None = None,
     ):
         """
         Initialize query analyzer
 
         Args:
             llm_client: LLM client for query analysis (uses singleton if None)
-            default_model: Default model for query classification (free/cheap model recommended)
+            default_model: Default model for query classification (uses settings if None)
         """
         self._llm_client = llm_client  # Store provided client or None
-        self.default_model = default_model
+        self.default_model = default_model or settings.query_analyzer_model
 
     @property
     def llm_client(self) -> LLMClient:
@@ -376,14 +377,14 @@ _query_analyzer: QueryAnalyzer | None = None
 
 def get_query_analyzer(
     llm_client: LLMClient | None = None,
-    default_model: str = "deepseek/deepseek-chat-v3-0324:free",
+    default_model: str | None = None,
 ) -> QueryAnalyzer:
     """
     Get or create query analyzer singleton
 
     Args:
         llm_client: Optional LLM client
-        default_model: Default model for query classification (cheap/free model recommended)
+        default_model: Default model for query classification (uses settings if None)
 
     Returns:
         QueryAnalyzer instance
@@ -391,6 +392,8 @@ def get_query_analyzer(
     global _query_analyzer
 
     if _query_analyzer is None:
-        _query_analyzer = QueryAnalyzer(llm_client=llm_client, default_model=default_model)
+        # Use settings.query_analyzer_model if no model specified
+        model = default_model or settings.query_analyzer_model
+        _query_analyzer = QueryAnalyzer(llm_client=llm_client, default_model=model)
 
     return _query_analyzer

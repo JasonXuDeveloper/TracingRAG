@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PromotionMode(str, Enum):
@@ -209,10 +209,19 @@ class PromotionPolicy(BaseModel):
     use_llm_evaluation: bool = Field(
         default=True, description="Use LLM to evaluate promotion necessity"
     )
-    evaluation_model: str = Field(
-        default="deepseek/deepseek-chat-v3-0324:free",
-        description="Model for promotion evaluation",
+    evaluation_model: str | None = Field(
+        default=None,
+        description="Model for promotion evaluation (uses settings.evaluation_model if None)",
     )
+
+    @field_validator("evaluation_model", mode="before")
+    @classmethod
+    def set_default_evaluation_model(cls, v):
+        """Use settings if not provided"""
+        if v is None:
+            from tracingrag.config import settings
+            return settings.evaluation_model
+        return v
 
     # Safety settings
     require_approval_for_conflicts: bool = Field(

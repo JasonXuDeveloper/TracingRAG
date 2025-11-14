@@ -95,7 +95,11 @@ class RetrievalService:
 
         # Retrieve full state objects from database
         async with get_session() as session:
-            state_ids = [UUID(candidate["id"]) for candidate in candidates]
+            # Convert to UUID if string, otherwise use as-is
+            state_ids = [
+                UUID(candidate["id"]) if isinstance(candidate["id"], str) else candidate["id"]
+                for candidate in candidates
+            ]
 
             result = await session.execute(
                 select(MemoryStateDB).where(MemoryStateDB.id.in_(state_ids))
@@ -111,7 +115,7 @@ class RetrievalService:
         # Create retrieval results
         results = []
         for candidate in latest_states[:limit]:
-            state_id = UUID(candidate["id"])
+            state_id = candidate["id"] if isinstance(candidate["id"], UUID) else UUID(candidate["id"])
             if state_id in states:
                 results.append(
                     RetrievalResult(
@@ -402,7 +406,7 @@ class RetrievalService:
         async with get_session() as session:
             # Get latest state mappings for all topics
             topics = list(
-                {states[UUID(c["id"])].topic for c in candidates if UUID(c["id"]) in states}
+                {states[c["id"]].topic for c in candidates if c["id"] in states}
             )
 
             result = await session.execute(
@@ -415,7 +419,7 @@ class RetrievalService:
         seen_topics = set()
 
         for candidate in candidates:
-            state_id = UUID(candidate["id"])
+            state_id = candidate["id"] if isinstance(candidate["id"], UUID) else UUID(candidate["id"])
             if state_id not in states:
                 continue
 

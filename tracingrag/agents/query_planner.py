@@ -6,6 +6,7 @@ from typing import Any
 
 from tracingrag.agents.models import AgentAction, AgentStep, RetrievalPlan
 from tracingrag.agents.tools import AgentTools
+from tracingrag.config import settings
 from tracingrag.core.models.rag import LLMRequest
 from tracingrag.services.llm import LLMClient, get_llm_client
 from tracingrag.services.query_analyzer import QueryAnalyzer, get_query_analyzer
@@ -19,7 +20,7 @@ class QueryPlannerAgent:
         llm_client: LLMClient | None = None,
         query_analyzer: QueryAnalyzer | None = None,
         tools: AgentTools | None = None,
-        planner_model: str = "deepseek/deepseek-chat-v3-0324:free",
+        planner_model: str | None = None,
     ):
         """
         Initialize query planner agent
@@ -33,7 +34,7 @@ class QueryPlannerAgent:
         self.llm_client = llm_client or get_llm_client()
         self.query_analyzer = query_analyzer or get_query_analyzer()
         self.tools = tools or AgentTools()
-        self.planner_model = planner_model
+        self.planner_model = planner_model or settings.planner_model
 
     async def analyze_and_plan(self, query: str) -> tuple[dict[str, Any], RetrievalPlan]:
         """

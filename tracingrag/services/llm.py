@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 
+from tracingrag.config import settings
 from tracingrag.core.models.rag import LLMRequest, LLMResponse
 
 
@@ -27,10 +28,11 @@ class LLMClient:
             default_model: Default model to use
             timeout: Request timeout in seconds
         """
-        self.api_key = api_key or os.getenv("OPENROUTER_API_KEY")
+        # Try api_key parameter, then settings, then OS env var
+        self.api_key = api_key or settings.openrouter_api_key or os.getenv("OPENROUTER_API_KEY")
         if not self.api_key:
             raise ValueError(
-                "API key required. Set OPENROUTER_API_KEY environment variable "
+                "API key required. Set OPENROUTER_API_KEY in .env file, environment variable, "
                 "or pass api_key parameter"
             )
 
@@ -94,6 +96,12 @@ class LLMClient:
         response = await self.client.post(
             f"{self.base_url}/chat/completions", json=payload, headers=headers
         )
+
+        # Enhanced error handling for debugging
+        if response.status_code == 429:
+            error_body = response.text
+            raise Exception(f"Rate limit (429) - Response: {error_body}")
+
         response.raise_for_status()
 
         # Parse response
@@ -198,16 +206,16 @@ _llm_client: LLMClient | None = None
 
 def get_llm_client(
     api_key: str | None = None,
-    base_url: str = "https://openrouter.ai/api/v1",
-    default_model: str = "anthropic/claude-3.5-sonnet",
+    base_url: str | None = None,
+    default_model: str | None = None,
 ) -> LLMClient:
     """
     Get or create LLM client singleton
 
     Args:
-        api_key: API key (defaults to OPENROUTER_API_KEY env var)
-        base_url: Base URL for API
-        default_model: Default model to use
+        api_key: API key (defaults to settings.openrouter_api_key)
+        base_url: Base URL for API (defaults to settings.openrouter_base_url)
+        default_model: Default model to use (defaults to settings.default_llm_model)
 
     Returns:
         LLM client instance
@@ -215,7 +223,11 @@ def get_llm_client(
     global _llm_client
 
     if _llm_client is None:
-        _llm_client = LLMClient(api_key=api_key, base_url=base_url, default_model=default_model)
+        _llm_client = LLMClient(
+            api_key=api_key,
+            base_url=base_url or settings.openrouter_base_url,
+            default_model=default_model or settings.default_llm_model,
+        )
 
     return _llm_client
 

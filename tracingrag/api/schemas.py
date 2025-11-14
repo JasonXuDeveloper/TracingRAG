@@ -26,6 +26,8 @@ class CreateMemoryRequest(BaseModel):
 class MemoryStateResponse(BaseModel):
     """Response containing a memory state"""
 
+    model_config = {"from_attributes": True}
+
     id: UUID
     topic: str
     content: str
@@ -65,6 +67,8 @@ class QueryRequest(BaseModel):
 
 class QueryResponse(BaseModel):
     """Response from RAG query"""
+
+    model_config = {"use_enum_values": True}
 
     answer: str = Field(..., description="Generated answer")
     sources: list[MemoryStateResponse] = Field(default_factory=list, description="Source memories")
