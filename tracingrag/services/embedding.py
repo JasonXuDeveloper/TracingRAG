@@ -1,4 +1,4 @@
-"""Embedding service using sentence-transformers for vector generation"""
+"""Embedding service using sentence-transformers for vector generation with OpenAI fallback"""
 
 import asyncio
 from functools import lru_cache
@@ -12,6 +12,8 @@ from tracingrag.config import settings
 # Global model cache
 _embedding_model: SentenceTransformer | None = None
 _device: str | None = None
+_use_openai: bool = False
+_openai_client: Any = None
 
 
 def get_device() -> str:
@@ -27,25 +29,64 @@ def get_device() -> str:
     return _device
 
 
+def get_openai_client() -> Any:
+    """Get or create OpenAI client for embeddings"""
+    global _openai_client, _use_openai
+
+    if settings.openai_api_key:
+        _use_openai = True
+        if _openai_client is None:
+            try:
+                from openai import AsyncOpenAI
+
+                _openai_client = AsyncOpenAI(api_key=settings.openai_api_key)
+            except ImportError:
+                _use_openai = False
+                print(
+                    "Warning: openai package not installed. Install with 'pip install openai' to use OpenAI embeddings."
+                )
+    return _openai_client
+
+
 @lru_cache(maxsize=1)
-def get_embedding_model() -> SentenceTransformer:
+def get_embedding_model() -> SentenceTransformer | None:
     """Get or create the embedding model (cached singleton)
 
     Returns:
-        SentenceTransformer model instance
+        SentenceTransformer model instance, or None if using OpenAI
     """
     global _embedding_model
+
+    # Check if we should use OpenAI instead
+    if settings.openai_api_key:
+        get_openai_client()
+        if _use_openai:
+            return None  # Signal to use OpenAI
+
     if _embedding_model is None:
-        device = get_device()
-        _embedding_model = SentenceTransformer(
-            settings.embedding_model,
-            device=device,
-        )
+        try:
+            device = get_device()
+            _embedding_model = SentenceTransformer(
+                settings.embedding_model,
+                device=device,
+            )
+        except Exception as e:
+            print(f"Warning: Failed to load {settings.embedding_model}: {e}")
+            # Fallback to OpenAI if local model fails
+            if settings.openai_api_key:
+                get_openai_client()
+                if _use_openai:
+                    return None
+
+            raise
     return _embedding_model
 
 
 async def generate_embedding(text: str) -> list[float]:
     """Generate embedding vector for a single text
+
+    Supports both local sentence-transformers models and OpenAI embeddings.
+    Will use OpenAI if OPENAI_API_KEY is set, otherwise uses local model.
 
     Args:
         text: Input text to embed
@@ -55,7 +96,15 @@ async def generate_embedding(text: str) -> list[float]:
     """
     model = get_embedding_model()
 
-    # Run encoding in thread pool to avoid blocking
+    # Use OpenAI if configured
+    if model is None and _use_openai:
+        client = get_openai_client()
+        response = await client.embeddings.create(
+            input=text, model=settings.openai_embedding_model
+        )
+        return response.data[0].embedding
+
+    # Use local model
     loop = asyncio.get_event_loop()
     embedding = await loop.run_in_executor(
         None,
@@ -68,16 +117,27 @@ async def generate_embedding(text: str) -> list[float]:
 async def generate_embeddings_batch(texts: list[str], batch_size: int = 32) -> list[list[float]]:
     """Generate embeddings for multiple texts in batches
 
+    Supports both local sentence-transformers models and OpenAI embeddings.
+    Will use OpenAI if OPENAI_API_KEY is set, otherwise uses local model.
+
     Args:
         texts: List of input texts to embed
-        batch_size: Number of texts to process at once
+        batch_size: Number of texts to process at once (for local model)
 
     Returns:
         List of embedding vectors
     """
     model = get_embedding_model()
 
-    # Run batch encoding in thread pool
+    # Use OpenAI if configured
+    if model is None and _use_openai:
+        client = get_openai_client()
+        response = await client.embeddings.create(
+            input=texts, model=settings.openai_embedding_model
+        )
+        return [item.embedding for item in response.data]
+
+    # Use local model
     loop = asyncio.get_event_loop()
     embeddings = await loop.run_in_executor(
         None,
@@ -152,6 +212,15 @@ def get_embedding_dimension() -> int:
         Embedding dimension
     """
     model = get_embedding_model()
+
+    # OpenAI embeddings
+    if model is None and _use_openai:
+        # OpenAI text-embedding-3-small: 1536 dimensions
+        # OpenAI text-embedding-3-large: 3072 dimensions
+        if "large" in settings.openai_embedding_model:
+            return 3072
+        return 1536
+
     return model.get_sentence_embedding_dimension()
 
 

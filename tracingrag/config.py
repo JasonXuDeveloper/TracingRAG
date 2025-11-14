@@ -1,5 +1,8 @@
 """Configuration management using Pydantic settings"""
 
+from typing import Any
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +14,8 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        # Don't try to parse JSON for env vars - use validators instead
+        env_parse_none_str="null",
     )
 
     # Application
@@ -93,11 +98,22 @@ class Settings(BaseSettings):
 
     # Security
     secret_key: str = "your-secret-key-here-change-in-production"
-    allowed_origins: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:8000",
-    ]
-    allowed_hosts: list[str] = ["*"]
+    allowed_origins: str | list[str] = Field(
+        default="http://localhost:3000,http://localhost:8000"
+    )
+    allowed_hosts: str | list[str] = Field(default="*")
+
+    @field_validator("allowed_origins", "allowed_hosts", mode="before")
+    @classmethod
+    def parse_comma_separated(cls, v: Any) -> list[str]:
+        """Parse comma-separated string into list"""
+        if isinstance(v, str):
+            if not v.strip():  # Empty string
+                return []
+            return [item.strip() for item in v.split(",") if item.strip()]
+        if isinstance(v, list):
+            return v
+        return []
 
     @property
     def is_development(self) -> bool:
