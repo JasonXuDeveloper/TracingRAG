@@ -54,7 +54,7 @@ def upgrade() -> None:
 
     # Create indexes for memory_states
     op.create_index("ix_memory_states_topic_version", "memory_states", ["topic", "version"])
-    op.create_index("ix_memory_states_entity_type", "memory_states", ["entity_type"])
+    # entity_type index already created by column definition (index=True)
     op.create_index("ix_memory_states_storage_tier", "memory_states", ["storage_tier"])
     op.create_index("ix_memory_states_is_consolidated", "memory_states", ["is_consolidated"])
     op.create_index("ix_memory_states_tags", "memory_states", ["tags"], postgresql_using="gin")
