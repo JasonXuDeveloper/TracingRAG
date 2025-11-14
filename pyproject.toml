@@ -10,7 +10,8 @@ packages = [{include = "tracingrag"}]
 [tool.poetry.dependencies]
 python = "^3.11"  # Python 3.14+ requires C compiler for greenlet (no pre-built wheels yet)
 # API Framework
-fastapi = "^0.115.0"
+fastapi = "^0.121.0"
+starlette = "^0.49.0"  # Pin to latest compatible version to fix CVE-2025-54121, CVE-2025-62727
 uvicorn = {extras = ["standard"], version = "^0.32.0"}
 pydantic = "^2.9.0"
 pydantic-settings = "^2.6.0"
@@ -40,7 +41,8 @@ torch = "^2.5.1"
 openai = "^1.54.5"
 langchain = "^0.3.7"
 langchain-openai = "^0.2.9"
-langgraph = "^0.2.45"
+langgraph = "^1.0.0"  # Updated to fix CVE-2025-64439 in langgraph-checkpoint
+langgraph-checkpoint = "^3.0.0"  # Pin to 3.0+ to fix CVE-2025-64439 RCE vulnerability
 langchain-community = "^0.3.7"
 
 # Utilities
