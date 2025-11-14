@@ -137,6 +137,7 @@ class RetrievalService:
         relationship_types: list[str] | None = None,
         include_historical: bool = True,
         historical_steps: int = 3,
+        start_nodes: list[UUID] | None = None,
     ) -> list[RetrievalResult]:
         """Graph-enhanced retrieval with edge-based relevance
 
@@ -147,16 +148,42 @@ class RetrievalService:
             relationship_types: Types of edges to traverse
             include_historical: Whether to include trace history
             historical_steps: Number of historical states to include
+            start_nodes: Optional list of node UUIDs to start traversal from
 
         Returns:
             List of retrieval results with related states and historical context
         """
-        # Get initial semantic matches
-        initial_matches = await self.semantic_search(
-            query=query,
-            limit=limit,
-            latest_only=True,
-        )
+        # Get initial semantic matches or use provided start nodes
+        if start_nodes:
+            # If start nodes provided, use them instead of semantic search
+            from tracingrag.storage.database import get_session
+            from tracingrag.storage.models import MemoryStateDB
+            from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
+
+            async with get_session() as session:
+                result = await session.execute(
+                    select(MemoryStateDB).where(MemoryStateDB.id.in_(start_nodes))
+                )
+                states = list(result.scalars().all())
+                # Trigger loading of all attributes while session is active
+                for state in states:
+                    _ = state.content  # Access content to load it
+                    _ = state.custom_metadata  # Load metadata
+                    _ = state.embedding  # Load embedding
+
+            # Create results after session is closed
+            initial_matches = [
+                RetrievalResult(state=state, score=1.0, retrieval_type="direct")
+                for state in states
+            ]
+        else:
+            # Get initial semantic matches
+            initial_matches = await self.semantic_search(
+                query=query,
+                limit=limit,
+                latest_only=True,
+            )
 
         # Enhance each match with graph traversal
         enhanced_results = []

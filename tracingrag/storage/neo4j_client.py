@@ -59,13 +59,6 @@ async def init_neo4j_schema() -> None:
             """
         )
 
-        await session.run(
-            """
-            CREATE CONSTRAINT entity_id IF NOT EXISTS
-            FOR (e:Entity) REQUIRE (e.type, e.name) IS UNIQUE
-            """
-        )
-
         # Create indexes for common queries
         await session.run(
             """
@@ -85,13 +78,6 @@ async def init_neo4j_schema() -> None:
             """
             CREATE INDEX memory_state_storage_tier IF NOT EXISTS
             FOR (m:MemoryState) ON (m.storage_tier)
-            """
-        )
-
-        await session.run(
-            """
-            CREATE INDEX entity_type IF NOT EXISTS
-            FOR (e:Entity) ON (e.type)
             """
         )
 
@@ -177,71 +163,214 @@ async def create_evolution_edge(
         )
 
 
-async def create_entity_node(
-    entity_type: str,
-    entity_name: str,
-    properties: dict[str, Any] | None = None,
-) -> None:
-    """Create or update an Entity node
+async def get_parent_relationships(
+    parent_id: UUID,
+) -> list[dict[str, Any]]:
+    """Get all relationships from a parent state that should be considered for inheritance
 
     Args:
-        entity_type: Type of entity (e.g., Character, Location, Concept)
-        entity_name: Name of the entity
-        properties: Additional properties for the entity (will be stored as JSON string)
+        parent_id: UUID of the parent state
+
+    Returns:
+        List of relationship details: {target_id, target_topic, target_version, rel_type, properties}
     """
     driver = get_neo4j_driver()
 
-    # Convert properties dict to JSON string for Neo4j storage
-    properties_json = json.dumps(properties) if properties else "{}"
+    async with driver.session(database=settings.neo4j_database) as session:
+        query = """
+        MATCH (parent:MemoryState {id: $parent_id})-[r]->(target:MemoryState)
+        WHERE type(r) IN ['RELATED_TO', 'DEPENDS_ON', 'CAUSED_BY', 'SIMILAR_TO']
+        RETURN
+            target.id as target_id,
+            target.topic as target_topic,
+            target.version as target_version,
+            type(r) as rel_type,
+            properties(r) as properties
+        """
+
+        result = await session.run(query, parent_id=str(parent_id))
+        relationships = []
+
+        async for record in result:
+            relationships.append({
+                "target_id": record["target_id"],
+                "target_topic": record["target_topic"],
+                "target_version": record["target_version"],
+                "rel_type": record["rel_type"],
+                "properties": record["properties"],
+            })
+
+        return relationships
+
+
+async def get_latest_version_of_topic(topic: str) -> dict[str, Any] | None:
+    """Get the latest version of a specific topic
+
+    Args:
+        topic: Topic name
+
+    Returns:
+        Dict with id, topic, version, timestamp or None if not found
+    """
+    driver = get_neo4j_driver()
 
     async with driver.session(database=settings.neo4j_database) as session:
-        await session.run(
-            """
-            MERGE (e:Entity {type: $entity_type, name: $entity_name})
-            SET e.properties = $properties
-            """,
-            entity_type=entity_type,
-            entity_name=entity_name,
-            properties=properties_json,
+        query = """
+        MATCH (m:MemoryState {topic: $topic})
+        RETURN m.id as id, m.topic as topic, m.version as version, m.timestamp as timestamp
+        ORDER BY m.version DESC
+        LIMIT 1
+        """
+
+        result = await session.run(query, topic=topic)
+        record = await result.single()
+
+        if record:
+            return {
+                "id": record["id"],
+                "topic": record["topic"],
+                "version": record["version"],
+                "timestamp": record["timestamp"],
+            }
+        return None
+
+
+async def inherit_parent_relationships(
+    parent_id: UUID,
+    child_id: UUID,
+    exclude_types: list[str] | None = None,
+) -> int:
+    """Inherit relationships from parent state to child state (simple copy)
+
+    NOTE: This is a simple inheritance mechanism. For intelligent relationship updates,
+    use update_relationships_on_evolution() instead.
+
+    Args:
+        parent_id: UUID of the parent state
+        child_id: UUID of the child state
+        exclude_types: List of relationship types to exclude
+
+    Returns:
+        Number of relationships inherited
+    """
+    driver = get_neo4j_driver()
+    exclude_types = exclude_types or ["EVOLVED_TO", "SUPERSEDED_BY", "BELONGS_TO"]
+
+    async with driver.session(database=settings.neo4j_database) as session:
+        # Copy RELATED_TO relationships
+        related_query = """
+        MATCH (parent:MemoryState {id: $parent_id})-[r:RELATED_TO]->(target)
+        MATCH (child:MemoryState {id: $child_id})
+        WITH child, target, properties(r) as rel_props
+        MERGE (child)-[new_r:RELATED_TO]->(target)
+        SET new_r = rel_props
+        RETURN count(new_r) as count
+        """
+
+        total_inherited = 0
+
+        # Copy RELATED_TO relationships
+        result = await session.run(
+            related_query,
+            parent_id=str(parent_id),
+            child_id=str(child_id),
         )
+        record = await result.single()
+        if record:
+            total_inherited += record["count"]
+
+        return total_inherited
 
 
-async def create_entity_relationship(
-    state_id: UUID,
-    entity_type: str,
-    entity_name: str,
-    relationship_type: str = "MENTIONS",
+async def create_memory_relationship(
+    source_id: UUID,
+    target_id: UUID,
+    relationship_type: str,
     properties: dict[str, Any] | None = None,
+    replace_existing: bool = False,
 ) -> None:
-    """Create a relationship between a memory state and an entity
+    """Create a relationship between two memory states
 
     Args:
-        state_id: UUID of the memory state
-        entity_type: Type of entity
-        entity_name: Name of entity
-        relationship_type: Type of relationship (MENTIONS, DEFINES, MODIFIES, etc.)
-        properties: Additional properties for the relationship (will be stored as JSON string)
+        source_id: UUID of the source memory state
+        target_id: UUID of the target memory state
+        relationship_type: Type of relationship (RELATED_TO, DEPENDS_ON, etc.)
+        properties: Additional properties for the relationship
+        replace_existing: If True, replace existing relationship of same type between these nodes
     """
     driver = get_neo4j_driver()
-
-    # Convert properties dict to JSON string for Neo4j storage
     properties_json = json.dumps(properties) if properties else "{}"
 
     async with driver.session(database=settings.neo4j_database) as session:
-        query = f"""
-        MATCH (m:MemoryState {{id: $state_id}})
-        MERGE (e:Entity {{type: $entity_type, name: $entity_name}})
-        CREATE (m)-[r:{relationship_type} {{properties: $properties}}]->(e)
+        if replace_existing:
+            # Delete existing relationship of same type first
+            delete_query = f"""
+            MATCH (source:MemoryState {{id: $source_id}})-[r:{relationship_type}]->(target:MemoryState {{id: $target_id}})
+            DELETE r
+            """
+            await session.run(
+                delete_query,
+                source_id=str(source_id),
+                target_id=str(target_id),
+            )
+
+        # Create new relationship
+        create_query = f"""
+        MATCH (source:MemoryState {{id: $source_id}})
+        MATCH (target:MemoryState {{id: $target_id}})
+        CREATE (source)-[r:{relationship_type} {{properties: $properties}}]->(target)
         RETURN r
         """
 
         await session.run(
-            query,
-            state_id=str(state_id),
-            entity_type=entity_type,
-            entity_name=entity_name,
+            create_query,
+            source_id=str(source_id),
+            target_id=str(target_id),
             properties=properties_json,
         )
+
+
+async def delete_memory_relationship(
+    source_id: UUID,
+    target_id: UUID,
+    relationship_type: str | None = None,
+) -> int:
+    """Delete relationship(s) between two memory states
+
+    Args:
+        source_id: UUID of the source memory state
+        target_id: UUID of the target memory state
+        relationship_type: Optional specific relationship type to delete (if None, deletes all)
+
+    Returns:
+        Number of relationships deleted
+    """
+    driver = get_neo4j_driver()
+
+    async with driver.session(database=settings.neo4j_database) as session:
+        if relationship_type:
+            query = f"""
+            MATCH (source:MemoryState {{id: $source_id}})-[r:{relationship_type}]->(target:MemoryState {{id: $target_id}})
+            DELETE r
+            RETURN count(r) as deleted_count
+            """
+        else:
+            query = """
+            MATCH (source:MemoryState {id: $source_id})-[r]->(target:MemoryState {id: $target_id})
+            WHERE type(r) IN ['RELATED_TO', 'DEPENDS_ON', 'CAUSED_BY', 'SIMILAR_TO']
+            DELETE r
+            RETURN count(r) as deleted_count
+            """
+
+        result = await session.run(
+            query,
+            source_id=str(source_id),
+            target_id=str(target_id),
+        )
+        record = await result.single()
+        return record["deleted_count"] if record else 0
+
+
 
 
 async def get_topic_history(
@@ -334,51 +463,13 @@ async def get_related_memories(
         ]
 
 
-async def get_entity_mentions(
-    entity_type: str,
-    entity_name: str,
-    limit: int = 50,
-) -> list[dict[str, Any]]:
-    """Get all memory states that mention a specific entity
-
-    Args:
-        entity_type: Type of entity
-        entity_name: Name of entity
-        limit: Maximum number of results
-
-    Returns:
-        List of memory states that mention the entity
-    """
-    driver = get_neo4j_driver()
-
-    async with driver.session(database=settings.neo4j_database) as session:
-        query = """
-        MATCH (m:MemoryState)-[r]->(e:Entity {type: $entity_type, name: $entity_name})
-        RETURN m, type(r) as relationship_type, r.properties as relationship_properties
-        ORDER BY m.timestamp DESC
-        LIMIT $limit
-        """
-
-        result = await session.run(
-            query,
-            entity_type=entity_type,
-            entity_name=entity_name,
-            limit=limit,
-        )
-
-        records = await result.data()
-        return [
-            {
-                "memory": record["m"],
-                "relationship_type": record["relationship_type"],
-                "relationship_properties": record["relationship_properties"],
-            }
-            for record in records
-        ]
-
-
 async def delete_memory_node(state_id: UUID) -> None:
-    """Delete a memory state node and its relationships
+    """Delete a memory state node and clean up orphan Topic nodes
+
+    This function:
+    1. Deletes the MemoryState node and all its relationships
+    2. Finds orphan Topic nodes (no remaining MemoryState connections)
+    3. Deletes all orphan Topic nodes
 
     Args:
         state_id: UUID of the memory state to delete
@@ -386,6 +477,18 @@ async def delete_memory_node(state_id: UUID) -> None:
     driver = get_neo4j_driver()
 
     async with driver.session(database=settings.neo4j_database) as session:
+        # Step 1: Get Topic info BEFORE deletion
+        result = await session.run(
+            """
+            MATCH (m:MemoryState {id: $state_id})
+            OPTIONAL MATCH (m)-[:BELONGS_TO]->(t:Topic)
+            RETURN t.name as topic_name
+            """,
+            state_id=str(state_id),
+        )
+        record = await result.single()
+
+        # Step 2: Now delete the MemoryState
         await session.run(
             """
             MATCH (m:MemoryState {id: $state_id})
@@ -393,6 +496,33 @@ async def delete_memory_node(state_id: UUID) -> None:
             """,
             state_id=str(state_id),
         )
+
+        if record and record["topic_name"]:
+            topic_name = record["topic_name"]
+
+            # Check if Topic is now orphan (no remaining MemoryStates)
+            orphan_check = await session.run(
+                """
+                MATCH (t:Topic {name: $topic_name})
+                OPTIONAL MATCH (t)<-[:BELONGS_TO]-(m:MemoryState)
+                WITH t, count(m) as state_count
+                WHERE state_count = 0
+                RETURN t.name as orphan_topic
+                """,
+                topic_name=topic_name,
+            )
+            orphan_topic = await orphan_check.single()
+
+            if orphan_topic and orphan_topic["orphan_topic"]:
+                # Delete orphan Topic
+                await session.run(
+                    """
+                    MATCH (t:Topic {name: $topic_name})
+                    DELETE t
+                    """,
+                    topic_name=topic_name,
+                )
+                print(f"[Neo4j] Deleted orphan Topic node: {topic_name}")
 
 
 async def close_neo4j() -> None:

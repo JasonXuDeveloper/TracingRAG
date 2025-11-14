@@ -129,7 +129,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="TracingRAG API",
     description="Enhanced RAG system with temporal tracing, graph relationships, and agentic retrieval",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -241,7 +241,7 @@ async def health_check():
 
     return HealthResponse(
         status=overall_status,
-        version="0.1.0",
+        version="0.2.0",
         services=services_status,
     )
 
@@ -600,7 +600,7 @@ async def root():
     """Root endpoint with API information"""
     return {
         "name": "TracingRAG API",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "description": "Enhanced RAG system with temporal tracing, graph relationships, and agentic retrieval",
         "docs": "/docs",
         "health": "/health",

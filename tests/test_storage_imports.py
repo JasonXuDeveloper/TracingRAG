@@ -41,8 +41,6 @@ class TestStorageImports:
         assert hasattr(neo4j_client, "init_neo4j_schema")
         assert hasattr(neo4j_client, "create_memory_node")
         assert hasattr(neo4j_client, "create_evolution_edge")
-        assert hasattr(neo4j_client, "create_entity_node")
-        assert hasattr(neo4j_client, "create_entity_relationship")
         assert hasattr(neo4j_client, "get_topic_history")
         assert hasattr(neo4j_client, "get_related_memories")
 

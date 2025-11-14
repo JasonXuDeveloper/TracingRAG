@@ -7,8 +7,9 @@ An enhanced Retrieval-Augmented Generation (RAG) system that combines temporal t
 ### Core Capabilities
 - **Temporal Tracing**: Track the evolution of knowledge over time with full history
 - **Graph Relationships**: Connect related concepts and states
+- **Intelligent Relationship Updates**: Automatically updates memory connections when states evolve using semantic similarity and LLM analysis
 - **Agentic Retrieval**: Intelligent, multi-step retrieval strategies
-- **Memory Promotion**: Synthesize new knowledge states from historical data
+- **Memory Promotion**: Synthesize new knowledge states from historical data with conflict resolution and quality checks
 - **Time-Travel Queries**: Query knowledge as it existed at any point in time
 
 ### Human-Like Memory (What Makes TracingRAG Special)

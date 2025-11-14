@@ -1,12 +1,22 @@
 # Automatic Memory Promotion - Usage Guide
 
-This guide explains how to use TracingRAG's automatic memory promotion feature with LLM-based decision making.
+This guide explains how to use TracingRAG's automatic memory promotion feature with LLM-based decision making, plus the new intelligent evolution features.
 
 ## Overview
 
 TracingRAG supports two promotion modes:
 - **Manual**: Users explicitly request promotion (default, safest)
-- **Automatic**: LLM evaluates and promotes automatically
+- **Automatic**: LLM evaluates and promotes automatically ⭐ **RECOMMENDED FOR MOST USE CASES**
+
+### Why Automatic Mode is Recommended
+
+With the new intelligent features (Cascading Evolution & Relationship Manager), automatic promotion provides:
+- **Self-maintaining knowledge graphs**: Relationships stay current as memories evolve
+- **Reduced manual overhead**: System handles consolidation intelligently
+- **Better information discovery**: Related topics evolve together
+- **Scalable for large datasets**: Works efficiently with thousands of memories
+
+**New in v0.2**: Cascading Evolution and Relationship Manager make automatic mode production-ready!
 
 ## Quick Start
 
@@ -346,10 +356,218 @@ print(f"LLM reasoning: {evaluation.reasoning}")
 - **Batch Processing**: Limit `max_concurrent_promotions` based on resources
 - **Cost**: DeepSeek free tier = $0, but rate-limited
 
+## New Features: Cascading Evolution & Relationship Manager
+
+### Cascading Evolution Manager
+
+**What it does**: Automatically evolves related topics when a new memory is created.
+
+**How it works**:
+1. When you create a new memory, it triggers an embedding search across **all** existing memories
+2. Finds semantically related topics (using cosine similarity)
+3. Deduplicates to keep only the latest version of each topic
+4. Uses LLM to intelligently decide which topics should evolve based on the new information
+5. Automatically creates new versions of those topics with synthesized content
+
+**Example Use Case**:
+```python
+from tracingrag.services.cascading_evolution import CascadingEvolutionManager
+
+evolution_manager = CascadingEvolutionManager()
+
+# After creating a new memory about "API authentication changes"
+new_state = await memory_service.create_memory_state(
+    topic="api_authentication",
+    content="Switched from JWT to OAuth2 for better security"
+)
+
+# Trigger cascading evolution
+stats = await evolution_manager.trigger_related_evolutions(
+    new_state=new_state,
+    similarity_threshold=0.4,  # How related must topics be (0-1)
+    max_evolutions=10  # Maximum topics to evolve at once
+)
+
+print(f"Evolved {len(stats['evolved_topics'])} related topics:")
+# Output: Evolved ['api_documentation', 'user_login_flow', 'security_policy']
+```
+
+**Why it's powerful**:
+- **Automatic knowledge propagation**: Changes ripple through your knowledge graph
+- **Maintains consistency**: Related topics stay synchronized
+- **Reduces manual work**: No need to manually update every related memory
+- **Intelligent selection**: LLM only evolves truly relevant topics
+
+**Configuration**:
+- `similarity_threshold` (0.3-0.7): Lower = more comprehensive, higher = more selective
+- `max_evolutions`: Limits concurrent updates (recommended: 5-20)
+
+---
+
+### Relationship Manager
+
+**What it does**: Intelligently updates relationship edges when memory states evolve.
+
+**How it works**:
+1. When a memory evolves (new version created), gets the parent's existing relationships
+2. Performs full vector DB search for semantically related states
+3. Deduplicates to latest version of each topic
+4. LLM analyzes ALL candidates + existing relationships together
+5. Decides: keep (update target to latest), create (new connection), or delete (no longer relevant)
+
+**Example Use Case**:
+```python
+from tracingrag.services.relationship_manager import RelationshipManager
+
+relationship_manager = RelationshipManager()
+
+# After promoting/evolving a memory
+new_version = await promotion_service.promote_memory(
+    PromotionRequest(topic="project_architecture", reason="Consolidating design changes")
+)
+
+# Update relationships intelligently
+stats = await relationship_manager.update_relationships_on_evolution(
+    new_state=new_version.promoted_state,
+    parent_state_id=new_version.parent_state_id,
+    similarity_threshold=0.3
+)
+
+print(f"Relationship updates:")
+print(f"  Created: {stats['created']} new connections")
+print(f"  Updated: {stats['updated']} to newer versions")
+print(f"  Deleted: {stats['deleted']} obsolete connections")
+print(f"  Kept: {stats['kept']} unchanged")
+```
+
+**Why it's powerful**:
+- **Self-healing knowledge graph**: Relationships automatically stay current
+- **Prevents stale connections**: Removes outdated links
+- **Discovers new connections**: Finds relationships as content evolves
+- **Scales to large graphs**: Uses vector search + LLM intelligence
+
+**Key Features**:
+- **Full database search**: Considers ALL potential relationships (not just top-K)
+- **Deduplication**: Always connects to latest version of each topic
+- **Merge strategy**: Combines parent relationships + new relationships - obsolete ones
+- **LLM-driven**: Decisions based on semantic understanding, not just similarity scores
+
+---
+
+### Using Them Together (Recommended Setup)
+
+```python
+from tracingrag.services.memory import MemoryService
+from tracingrag.services.promotion import PromotionService, PromotionPolicy, PromotionMode
+from tracingrag.services.cascading_evolution import CascadingEvolutionManager
+from tracingrag.services.relationship_manager import RelationshipManager
+
+# Configure automatic promotion
+policy = PromotionPolicy(
+    mode=PromotionMode.AUTOMATIC,
+    version_count_threshold=5,
+    confidence_threshold=0.8,
+    use_llm_evaluation=True
+)
+
+# Initialize services
+memory_service = MemoryService()
+promotion_service = PromotionService(policy=policy)
+evolution_manager = CascadingEvolutionManager()
+relationship_manager = RelationshipManager()
+
+# Integrated workflow
+async def create_memory_with_intelligence(topic: str, content: str):
+    # 1. Create memory
+    new_state = await memory_service.create_memory_state(topic, content)
+
+    # 2. Trigger cascading evolution (related topics evolve)
+    evolution_stats = await evolution_manager.trigger_related_evolutions(new_state)
+    print(f"Cascading evolution: {len(evolution_stats['evolved_topics'])} topics evolved")
+
+    # 3. Update relationships for the new state
+    rel_stats = await relationship_manager.update_relationships_on_evolution(
+        new_state=new_state,
+        parent_state_id=new_state.parent_id  # If evolved from parent
+    )
+    print(f"Relationships: {rel_stats['created']} created, {rel_stats['updated']} updated")
+
+    # 4. Check if automatic promotion is needed
+    evaluation = await promotion_service.evaluate_after_insertion(
+        topic=topic,
+        new_state_id=new_state.id
+    )
+
+    if evaluation and evaluation.should_promote:
+        print(f"Auto-promotion triggered with confidence {evaluation.confidence}")
+
+    return new_state
+
+# Use it
+await create_memory_with_intelligence(
+    topic="system_architecture",
+    content="Migrated from monolith to microservices architecture"
+)
+```
+
+---
+
+### Best Practices for Intelligent Features
+
+1. **Start with conservative thresholds**:
+   - Cascading: `similarity_threshold=0.5`, `max_evolutions=5`
+   - Relationships: `similarity_threshold=0.4`
+   - Increase gradually based on results
+
+2. **Monitor evolution patterns**:
+   ```python
+   stats = await evolution_manager.trigger_related_evolutions(new_state)
+
+   # Check what evolved
+   for topic in stats['evolved_topics']:
+       print(f"Evolved: {topic}")
+
+   # Check what was skipped (might need lower threshold)
+   for topic in stats['skipped_topics']:
+       print(f"Skipped: {topic} (not relevant enough)")
+   ```
+
+3. **Use together with automatic promotion**:
+   - Cascading evolution → keeps topics current
+   - Relationship manager → keeps graph consistent
+   - Automatic promotion → consolidates when needed
+   - Result: Self-maintaining knowledge system
+
+4. **Cost optimization**:
+   - Both features use LLM calls (batched)
+   - Use cheap models (DeepSeek) for decisions
+   - Typical cost: $0.001-0.01 per memory creation
+   - Set `max_evolutions` to control cost
+
+5. **Performance tuning**:
+   - `similarity_threshold`: Higher = fewer LLM calls but might miss connections
+   - `max_evolutions`: Lower = faster but less comprehensive
+   - For real-time apps: Use background tasks for evolution
+
+---
+
+### When to Use Each Feature
+
+| Feature | Use When | Skip When |
+|---------|----------|-----------|
+| **Cascading Evolution** | • Content changes affect multiple topics<br>• Need automatic consistency<br>• Large, interconnected knowledge base | • Topics are truly independent<br>• Want full manual control<br>• Very small dataset (<100 memories) |
+| **Relationship Manager** | • Graph relationships are important<br>• Need accurate connection tracking<br>• Frequently evolving memories | • Don't use graph queries<br>• Relationships don't matter<br>• Static knowledge base |
+| **Automatic Promotion** | • High-volume memory creation<br>• Need consolidation at scale<br>• Want intelligent decisions | • Need full review of every promotion<br>• Highly sensitive data<br>• Regulatory requirements for human oversight |
+
+---
+
 ## Summary
 
 - **Manual Mode** (default): Safe, explicit control
-- **Automatic Mode**: LLM-driven, configurable thresholds
+- **Automatic Mode** ⭐ **RECOMMENDED**: LLM-driven, self-maintaining with new intelligent features
 - **LLM Evaluation**: Intelligent decisions based on content analysis
+- **Cascading Evolution**: Automatically evolves related topics when memories are created
+- **Relationship Manager**: Keeps graph connections current and accurate as memories evolve
 - **Safety**: Dry run, conflict detection, quality checks
 - **Flexible**: Per-topic policies, gradual rollout, monitoring
+- **Production-ready**: The combination of automatic promotion + cascading evolution + relationship manager creates a truly intelligent, self-maintaining knowledge system

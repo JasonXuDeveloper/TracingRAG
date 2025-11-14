@@ -12,9 +12,10 @@ from tracingrag.services.embedding import generate_embedding, prepare_text_for_e
 from tracingrag.storage.database import get_session
 from tracingrag.storage.models import MemoryStateDB, TopicLatestStateDB, TraceDB
 from tracingrag.storage.neo4j_client import (
-    create_entity_relationship,
     create_evolution_edge,
     create_memory_node,
+    get_parent_relationships,
+    inherit_parent_relationships,
 )
 from tracingrag.storage.qdrant import upsert_embedding
 
@@ -122,15 +123,17 @@ class MemoryService:
                     edge_properties={"timestamp": timestamp.isoformat()},
                 )
 
-            # Link entities in graph
-            if entities:
-                for entity_type_val, entity_name in entities:
-                    await create_entity_relationship(
-                        state_id=state_id,
-                        entity_type=entity_type_val,
-                        entity_name=entity_name,
-                        relationship_type="MENTIONS",
+                # Simple relationship inheritance (fast, happens in transaction)
+                # Note: If intelligent updates are enabled, this will be replaced later
+                if not settings.intelligent_relationship_updates:
+                    inherited_count = await inherit_parent_relationships(
+                        parent_id=parent_state_id,
+                        child_id=state_id,
                     )
+                    if inherited_count > 0:
+                        print(
+                            f"[MemoryService] Inherited {inherited_count} relationships from parent (simple)"
+                        )
 
             # Update or create trace
             await self._update_trace(session, topic, state_id)
@@ -138,18 +141,71 @@ class MemoryService:
             await session.commit()
             await session.refresh(state)
 
+        # Cascading evolution - evolve related topics based on new memory (BEFORE relationship updates)
+        # This must run BEFORE RelationshipManager so the newly evolved states are included in relationship analysis
+        if settings.enable_cascading_evolution and not metadata.get("cascading_evolution"):
+            try:
+                from tracingrag.services.cascading_evolution import get_cascading_evolution_manager
+
+                cascading_manager = get_cascading_evolution_manager()
+                evolution_stats = await cascading_manager.trigger_related_evolutions(
+                    new_state=state,
+                    similarity_threshold=settings.cascading_evolution_similarity_threshold,
+                    max_evolutions=settings.cascading_evolution_max_topics,
+                )
+                print(
+                    f"[MemoryService] Cascading evolution completed: "
+                    f"{len(evolution_stats['evolved_topics'])} topics evolved, "
+                    f"{len(evolution_stats['skipped_topics'])} skipped"
+                )
+            except Exception as e:
+                # Don't fail memory creation if cascading evolution fails
+                print(f"[MemoryService] Cascading evolution failed (non-critical): {e}")
+
+        # Intelligent relationship updates on evolution (outside transaction)
+        if parent_state_id and settings.intelligent_relationship_updates:
+            try:
+                from tracingrag.services.relationship_manager import get_relationship_manager
+
+                relationship_manager = get_relationship_manager()
+                stats = await relationship_manager.update_relationships_on_evolution(
+                    new_state=state,
+                    parent_state_id=parent_state_id,
+                    similarity_threshold=settings.relationship_update_similarity_threshold,
+                )
+                print(
+                    f"[MemoryService] Intelligent relationship update completed: "
+                    f"{stats['kept']} kept, {stats['updated']} updated, "
+                    f"{stats['created']} created, {stats['deleted']} deleted"
+                )
+            except Exception as e:
+                # Fallback to simple inheritance if intelligent update fails
+                print(f"[MemoryService] Intelligent relationship update failed: {e}")
+                print("[MemoryService] Falling back to simple inheritance")
+                try:
+                    inherited_count = await inherit_parent_relationships(
+                        parent_id=parent_state_id,
+                        child_id=state.id,
+                    )
+                    if inherited_count > 0:
+                        print(f"[MemoryService] Inherited {inherited_count} relationships (fallback)")
+                except Exception as fallback_e:
+                    print(f"[MemoryService] Fallback inheritance also failed: {fallback_e}")
+
         # Auto-link related memories (outside transaction to avoid blocking)
-        try:
-            linked = await self.auto_link_related_memories(
-                new_state=state,
-                max_candidates=10,
-                similarity_threshold=0.6,
-            )
-            if linked:
-                print(f"[MemoryService] Auto-linked {len(linked)} related memories for {topic}")
-        except Exception as e:
-            # Don't fail memory creation if auto-linking fails
-            print(f"[MemoryService] Auto-linking failed (non-critical): {e}")
+        # Note: Disabled if intelligent relationship updates are enabled (to avoid duplication)
+        if not settings.intelligent_relationship_updates:
+            try:
+                linked = await self.auto_link_related_memories(
+                    new_state=state,
+                    max_candidates=10,
+                    similarity_threshold=0.6,
+                )
+                if linked:
+                    print(f"[MemoryService] Auto-linked {len(linked)} related memories for {topic}")
+            except Exception as e:
+                # Don't fail memory creation if auto-linking fails
+                print(f"[MemoryService] Auto-linking failed (non-critical): {e}")
 
         return state
 

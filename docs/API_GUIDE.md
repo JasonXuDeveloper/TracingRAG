@@ -40,7 +40,7 @@ GET /
 ```json
 {
   "name": "TracingRAG API",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Enhanced RAG system with temporal tracing, graph relationships, and agentic retrieval",
   "docs": "/docs",
   "health": "/health",
@@ -57,7 +57,7 @@ GET /health
 ```json
 {
   "status": "healthy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "services": {
     "memory_service": "healthy",
     "rag_service": "healthy",

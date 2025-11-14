@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "TracingRAG"
-    app_version: str = "0.1.0"
+    app_version: str = "0.2.0"
     environment: str = "development"
     log_level: str = "INFO"
     debug: bool = True
@@ -87,6 +87,16 @@ class Settings(BaseSettings):
     promotion_confidence_threshold: float = 0.7
     auto_promotion_enabled: bool = False
     max_trace_history_context: int = 10
+
+    # Relationship Management
+    intelligent_relationship_updates: bool = True
+    relationship_update_similarity_threshold: float = 0.3  # Min similarity for candidates
+    relationship_update_llm_batch_size: int = 30  # Batch size for LLM processing
+
+    # Cascading Evolution (evolve related topics when new memory is created)
+    enable_cascading_evolution: bool = True
+    cascading_evolution_similarity_threshold: float = 0.4  # Min similarity for evolution candidates (higher = more selective)
+    cascading_evolution_max_topics: int = 10  # Max topics to evolve per new memory
 
     # Agent Configuration
     agent_max_iterations: int = 10

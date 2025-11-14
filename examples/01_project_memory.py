@@ -146,8 +146,8 @@ async def main():
         )
         if result2.answer:
             print(f"   Answer: {result2.answer[:200]}...")
-            if result2.reasoning_steps:
-                print(f"   Reasoning steps: {len(result2.reasoning_steps)}")
+            if result2.reasoning:
+                print(f"   Reasoning: {result2.reasoning[:100]}...")
 
         # ====================================================================
         # Phase 5: View Project Evolution

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tracingrag"
-version = "0.1.0"
+version = "0.2.0"
 description = "Temporal graph-based RAG system combining evolution tracking, graph relationships, and intelligent retrieval for domain-agnostic knowledge management"
 authors = ["JasonXuDeveloper <jasonxudeveloper@gmail.com>"]
 readme = "README.md"

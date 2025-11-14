@@ -20,7 +20,7 @@ from prometheus_client import (
 system_info = Info("tracingrag_system", "TracingRAG system information")
 system_info.info(
     {
-        "version": "0.1.0",
+        "version": "0.2.0",
         "component": "tracingrag",
     }
 )

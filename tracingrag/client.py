@@ -22,11 +22,13 @@ class MemoryState(BaseModel):
     parent_state_id: str | None = None
     tags: list[str] = []
     confidence: float = 1.0
-    custom_metadata: dict[str, Any] = {}
+    metadata: dict[str, Any] = {}  # API returns 'metadata', not 'custom_metadata'
+    custom_metadata: dict[str, Any] = {}  # Keep for backwards compatibility
     storage_tier: str = "active"
     access_count: int = 0
     is_consolidated: bool = False
     consolidation_level: int = 0
+    source: str | None = None  # API also returns 'source' field
 
 
 class QueryResult(BaseModel):
@@ -40,23 +42,29 @@ class QueryResult(BaseModel):
 class QueryResponse(BaseModel):
     """Query response model"""
 
-    query: str
-    answer: str | None = None
-    retrieved_states: list[QueryResult] = []
+    answer: str
+    sources: list[MemoryState] = []
     confidence: float = 0.0
-    reasoning_steps: list[str] = []
-    sources: list[str] = []
+    reasoning: str | None = None
+    metadata: dict[str, Any] = {}
 
 
 class PromotionResult(BaseModel):
     """Promotion result model"""
 
-    new_state: MemoryState
-    promoted_from_version: int
+    success: bool
+    topic: str
+    new_state: MemoryState | None = None
+    promoted_from_version: int | None = None
+    new_version: int | None = None
     conflicts_detected: list[dict] = []
     conflicts_resolved: list[dict] = []
     synthesis_sources: list[str] = []
     quality_checks: dict[str, Any] = {}
+    reasoning: str = ""
+    confidence: float = 0.0
+    manual_review_needed: bool = False
+    error_message: str | None = None
 
 
 class PromotionCandidate(BaseModel):
@@ -222,6 +230,23 @@ class TracingRAGClient:
         response.raise_for_status()
         return MemoryState(**response.json())
 
+    def delete_memory(self, memory_id: str) -> dict[str, Any]:
+        """Delete a memory by ID
+
+        Args:
+            memory_id: Memory state ID
+
+        Returns:
+            Deletion result with success status and message
+
+        Example:
+            >>> result = client.delete_memory("mem_123")
+            >>> print(result["message"])
+        """
+        response = self._client.delete(f"/api/v1/memories/{memory_id}")
+        response.raise_for_status()
+        return response.json()
+
     def list_memories(
         self,
         topic: str | None = None,
@@ -249,7 +274,8 @@ class TracingRAGClient:
 
         response = self._client.get("/api/v1/memories", params=params)
         response.raise_for_status()
-        return [MemoryState(**m) for m in response.json()]
+        result = response.json()
+        return [MemoryState(**m) for m in result.get("memories", [])]
 
     def get_trace(self, topic: str) -> list[MemoryState]:
         """Get version history for a topic
@@ -268,7 +294,8 @@ class TracingRAGClient:
         """
         response = self._client.get(f"/api/v1/traces/{topic}")
         response.raise_for_status()
-        return [MemoryState(**m) for m in response.json()]
+        result = response.json()
+        return [MemoryState(**m) for m in result.get("memories", [])]
 
     # ========================================================================
     # Query Endpoints
@@ -332,6 +359,7 @@ class TracingRAGClient:
         topic: str,
         reason: str | None = None,
         mode: str = "automatic",
+        quality_checks_enabled: bool = True,
     ) -> PromotionResult:
         """Promote a memory to a new state
 
@@ -342,9 +370,13 @@ class TracingRAGClient:
             topic: Topic to promote
             reason: Optional reason for promotion
             mode: Promotion mode ("automatic", "manual", "scheduled")
+            quality_checks_enabled: Enable quality checks (hallucination, citation, consistency)
 
         Returns:
             Promotion result with new state
+
+        Raises:
+            Exception: If promotion fails
 
         Example:
             >>> result = client.promote_memory(
@@ -357,12 +389,44 @@ class TracingRAGClient:
         data = {
             "topic": topic,
             "reason": reason,
-            "mode": mode,
+            "trigger": mode,
+            "quality_checks_enabled": quality_checks_enabled,
         }
 
         response = self._client.post("/api/v1/promote", json=data)
         response.raise_for_status()
-        return PromotionResult(**response.json())
+        api_response = response.json()
+
+        # Check if promotion was successful
+        if not api_response.get("success", False):
+            error_msg = api_response.get("error_message", "Unknown error")
+            raise Exception(f"Memory promotion failed: {error_msg}")
+
+        # Fetch the new state if promotion succeeded
+        new_state = None
+        promoted_from_version = None
+        if api_response.get("new_state_id"):
+            new_state_response = self._client.get(f"/api/v1/memories/{api_response['new_state_id']}")
+            new_state_response.raise_for_status()
+            new_state = MemoryState(**new_state_response.json())
+            promoted_from_version = api_response.get("previous_state_id")
+            if promoted_from_version:
+                # Fetch the previous state version
+                prev_state_response = self._client.get(f"/api/v1/memories/{promoted_from_version}")
+                if prev_state_response.status_code == 200:
+                    prev_state = MemoryState(**prev_state_response.json())
+                    promoted_from_version = prev_state.version
+
+        return PromotionResult(
+            success=True,
+            topic=api_response["topic"],
+            new_state=new_state,
+            promoted_from_version=promoted_from_version,
+            new_version=api_response.get("new_version"),
+            reasoning=api_response.get("reasoning", ""),
+            confidence=api_response.get("confidence", 0.0),
+            manual_review_needed=api_response.get("manual_review_needed", False),
+        )
 
     def get_promotion_candidates(
         self,
@@ -487,6 +551,12 @@ class AsyncTracingRAGClient:
         response.raise_for_status()
         return MemoryState(**response.json())
 
+    async def delete_memory(self, memory_id: str) -> dict[str, Any]:
+        """Delete a memory by ID"""
+        response = await self._client.delete(f"/api/v1/memories/{memory_id}")
+        response.raise_for_status()
+        return response.json()
+
     async def list_memories(
         self,
         topic: str | None = None,
@@ -500,13 +570,15 @@ class AsyncTracingRAGClient:
 
         response = await self._client.get("/api/v1/memories", params=params)
         response.raise_for_status()
-        return [MemoryState(**m) for m in response.json()]
+        result = response.json()
+        return [MemoryState(**m) for m in result.get("memories", [])]
 
     async def get_trace(self, topic: str) -> list[MemoryState]:
         """Get version history for a topic"""
         response = await self._client.get(f"/api/v1/traces/{topic}")
         response.raise_for_status()
-        return [MemoryState(**m) for m in response.json()]
+        result = response.json()
+        return [MemoryState(**m) for m in result.get("memories", [])]
 
     async def query(
         self,
@@ -536,17 +608,63 @@ class AsyncTracingRAGClient:
         topic: str,
         reason: str | None = None,
         mode: str = "automatic",
+        quality_checks_enabled: bool = True,
     ) -> PromotionResult:
-        """Promote a memory to a new state"""
+        """Promote a memory to a new state
+
+        Args:
+            topic: Topic to promote
+            reason: Optional reason for promotion
+            mode: Promotion mode ("automatic", "manual", "scheduled")
+            quality_checks_enabled: Enable quality checks (hallucination, citation, consistency)
+
+        Returns:
+            Promotion result with new state
+
+        Raises:
+            Exception: If promotion fails
+        """
         data = {
             "topic": topic,
             "reason": reason,
-            "mode": mode,
+            "trigger": mode,
+            "quality_checks_enabled": quality_checks_enabled,
         }
 
         response = await self._client.post("/api/v1/promote", json=data)
         response.raise_for_status()
-        return PromotionResult(**response.json())
+        api_response = response.json()
+
+        # Check if promotion was successful
+        if not api_response.get("success", False):
+            error_msg = api_response.get("error_message", "Unknown error")
+            raise Exception(f"Memory promotion failed: {error_msg}")
+
+        # Fetch the new state if promotion succeeded
+        new_state = None
+        promoted_from_version = None
+        if api_response.get("new_state_id"):
+            new_state_response = await self._client.get(f"/api/v1/memories/{api_response['new_state_id']}")
+            new_state_response.raise_for_status()
+            new_state = MemoryState(**new_state_response.json())
+            promoted_from_version = api_response.get("previous_state_id")
+            if promoted_from_version:
+                # Fetch the previous state version
+                prev_state_response = await self._client.get(f"/api/v1/memories/{promoted_from_version}")
+                if prev_state_response.status_code == 200:
+                    prev_state = MemoryState(**prev_state_response.json())
+                    promoted_from_version = prev_state.version
+
+        return PromotionResult(
+            success=True,
+            topic=api_response["topic"],
+            new_state=new_state,
+            promoted_from_version=promoted_from_version,
+            new_version=api_response.get("new_version"),
+            reasoning=api_response.get("reasoning", ""),
+            confidence=api_response.get("confidence", 0.0),
+            manual_review_needed=api_response.get("manual_review_needed", False),
+        )
 
     async def get_promotion_candidates(
         self,
