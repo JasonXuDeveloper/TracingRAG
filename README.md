@@ -41,7 +41,7 @@ TracingRAG uses a multi-layer architecture:
 - **Agentic Layer**: LLM-based query planning, memory promotion, retrieval orchestration
 - **API Layer**: FastAPI REST endpoints with async support
 
-See [DESIGN.md](DESIGN.md) for detailed architecture and design decisions.
+See [docs/](docs/) for detailed documentation on architecture, usage, and deployment.
 
 ## Tech Stack
 
@@ -228,31 +228,43 @@ For complete API documentation, see [docs/API_GUIDE.md](docs/API_GUIDE.md).
 TracingRAG/
 ├── tracingrag/                 # Main package
 │   ├── __init__.py
-│   ├── core/                   # Core domain models and logic
-│   │   ├── models/            # Data models
-│   │   ├── services/          # Business logic
-│   │   └── interfaces/        # Abstract interfaces
+│   ├── core/                   # Core domain models
+│   │   └── models/            # Data models (memory, graph, rag, promotion)
+│   ├── services/              # Business logic layer
+│   │   ├── memory.py          # Memory state management
+│   │   ├── rag.py             # RAG pipeline orchestration
+│   │   ├── graph.py           # Graph relationship management
+│   │   ├── retrieval.py       # Retrieval strategies
+│   │   ├── promotion.py       # Memory promotion & synthesis
+│   │   ├── embedding.py       # Embedding generation
+│   │   ├── cache.py           # Caching layer (Redis)
+│   │   └── ...                # Other services
 │   ├── storage/               # Storage layer
-│   │   ├── vector/            # Qdrant integration
-│   │   ├── graph/             # Neo4j integration
-│   │   └── document/          # PostgreSQL integration
+│   │   ├── qdrant.py          # Qdrant vector database
+│   │   ├── neo4j_client.py    # Neo4j graph database
+│   │   ├── database.py        # PostgreSQL integration
+│   │   ├── redis_client.py    # Redis caching
+│   │   └── models.py          # SQLAlchemy models
 │   ├── agents/                # Agentic layer
-│   │   ├── query_agent.py
-│   │   ├── memory_agent.py
-│   │   └── planning_agent.py
+│   │   ├── query_planner.py   # Query planning agent
+│   │   ├── memory_manager.py  # Memory management agent
+│   │   ├── service.py         # Agent orchestration
+│   │   └── tools.py           # Agent tools
 │   ├── api/                   # API layer
-│   │   ├── main.py
-│   │   ├── routes/
-│   │   └── schemas/
+│   │   ├── main.py            # FastAPI application
+│   │   ├── schemas.py         # Pydantic schemas
+│   │   └── security.py        # Authentication & authorization
 │   └── utils/                 # Utilities
 ├── tests/                     # Test suite
 ├── scripts/                   # Utility scripts
 ├── docs/                      # Additional documentation
+├── examples/                  # Usage examples
+├── alembic/                   # Database migrations
+├── k8s/                       # Kubernetes manifests
 ├── docker-compose.yml         # Local development infrastructure
 ├── Dockerfile                 # Application container
 ├── pyproject.toml            # Poetry configuration
 ├── .env.example              # Environment variables template
-├── DESIGN.md                 # Detailed design document
 └── README.md                 # This file
 ```
 
@@ -379,7 +391,7 @@ See [docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) for complete deployment
 
 ## Contributing
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+Contributions are welcome! Please see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for development setup and guidelines.
 
 ## License
 

@@ -42,7 +42,7 @@ class TestHealthEndpoints:
 
     def test_metrics_endpoint(self, client):
         """Test metrics endpoint"""
-        response = client.get("/metrics")
+        response = client.get("/api/v1/metrics")
         assert response.status_code == 200
         data = response.json()
         assert "total_memories" in data

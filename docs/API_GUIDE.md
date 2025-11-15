@@ -25,7 +25,21 @@ poetry run uvicorn tracingrag.api.main:app --host 0.0.0.0 --port 8000 --reload
 
 ## Authentication
 
-Currently, the API does not require authentication. This will be added in Phase 8 (Production Ready).
+TracingRAG supports multiple authentication methods for production deployments:
+
+- **JWT (JSON Web Tokens)**: For user-based authentication
+- **API Keys**: For service-to-service authentication
+- **Rate Limiting**: Built-in protection against abuse
+
+For local development, authentication is disabled by default. To enable authentication in production, configure the following in your `.env`:
+
+```env
+SECRET_KEY=your-secret-key-here-change-in-production
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_REQUESTS_PER_MINUTE=100
+```
+
+See `tracingrag/api/security.py` for authentication implementation details.
 
 ## API Endpoints
 

@@ -261,13 +261,22 @@ async def get_application_metrics():
         avg_versions = total_memories / total_topics if total_topics > 0 else 0
 
         # Count promotions (states with "promoted" tag)
-        # Use overlap operator for PostgreSQL ARRAY type: tags && ARRAY['promoted']
-        # This checks if the array contains the "promoted" tag
-        promotions_result = await session.execute(
-            select(func.count(MemoryStateDB.id)).where(
-                MemoryStateDB.tags.op("&&")(cast(literal(["promoted"]), ARRAY(String)))
+        # Check database dialect to use appropriate query
+        dialect_name = session.bind.dialect.name
+        if dialect_name == "postgresql":
+            # Use overlap operator for PostgreSQL ARRAY type: tags && ARRAY['promoted']
+            promotions_result = await session.execute(
+                select(func.count(MemoryStateDB.id)).where(
+                    MemoryStateDB.tags.op("&&")(cast(literal(["promoted"]), ARRAY(String)))
+                )
             )
-        )
+        else:
+            # For SQLite, tags are stored as JSON text, so use LIKE for simple search
+            promotions_result = await session.execute(
+                select(func.count(MemoryStateDB.id)).where(
+                    MemoryStateDB.tags.cast(String).like("%promoted%")
+                )
+            )
         total_promotions = promotions_result.scalar() or 0
 
     uptime = time.time() - app_start_time

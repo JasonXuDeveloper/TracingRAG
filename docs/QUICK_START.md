@@ -229,10 +229,10 @@ poetry run python examples/03_novel_writing.py
 
 ### Read the Documentation
 
-- [Design Document](../DESIGN.md) - Architecture and design decisions
 - [Use Cases](USE_CASES.md) - Detailed use case examples
-- [API Reference](API_REFERENCE.md) - Complete API documentation
+- [API Guide](API_GUIDE.md) - Complete API documentation
 - [Development Guide](DEVELOPMENT.md) - Contributing and development
+- [Deployment Guide](DEPLOYMENT_GUIDE.md) - Production deployment instructions
 
 ## Troubleshooting
 
@@ -325,7 +325,7 @@ Check out the [examples/](../examples/) directory for inspiration!
 ## Getting Help
 
 - Read the [FAQ](FAQ.md)
-- Check [GitHub Issues](https://github.com/yourusername/TracingRAG/issues)
-- Join the [Discord community](https://discord.gg/tracingrag)
+- Check the documentation in the [docs/](.) directory
+- Review the [examples/](../examples/) for usage patterns
 
 Happy tracing! 🚀
