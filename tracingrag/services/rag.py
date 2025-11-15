@@ -395,10 +395,17 @@ Updated Answer:"""
 
         # Phase 3: Final synthesis (if multiple rounds)
         if len(round_answers) > 1:
+            # Build round-by-round answers (avoid backslash in f-string)
+            newline = "\n"
+            round_by_round = chr(10).join(
+                f"Round {i+1}:{newline}{ans}{newline}"
+                for i, ans in enumerate(round_answers)
+            )
+
             synthesis_prompt = f"""**ORIGINAL QUERY**: {query}
 
 **ROUND-BY-ROUND ANSWERS**:
-{chr(10).join(f"Round {i+1}:\n{ans}\n" for i, ans in enumerate(round_answers))}
+{round_by_round}
 
 **INSTRUCTIONS**:
 Synthesize a single, coherent answer that:
