@@ -8,13 +8,13 @@ This module handles cascading updates when a new memory is created:
 5. Then RelationshipManager can update edges with the evolved states
 """
 
-import json
 from typing import TYPE_CHECKING, Any
 
 from tracingrag.config import settings
 from tracingrag.core.models.rag import LLMRequest
 from tracingrag.services.llm import get_llm_client
 from tracingrag.storage.models import MemoryStateDB
+from tracingrag.utils.json_utils import parse_llm_json
 from tracingrag.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -33,7 +33,6 @@ class CascadingEvolutionManager:
         self,
         new_state: MemoryStateDB,
         similarity_threshold: float = 0.4,
-        max_evolutions: int = 10,
     ) -> dict[str, Any]:
         """Trigger single-level cascading evolution with concurrent processing
 
@@ -46,7 +45,6 @@ class CascadingEvolutionManager:
         Args:
             new_state: The newly created memory state
             similarity_threshold: Minimum similarity for candidates (higher = more selective)
-            max_evolutions: Maximum number of topics to evolve
 
         Returns:
             Dict with evolution statistics
@@ -70,10 +68,15 @@ class CascadingEvolutionManager:
             f"🌊 Starting single-level cascading evolution from: {new_state.topic} v{new_state.version}"
         )
 
-        # Step 1: Find semantically related states (only search once!)
+        # Step 1: Get total count of active memory states for limit
+        total_active_states = await memory_service.count_states(storage_tier="active")
+        logger.info(f"   Total active states in database: {total_active_states}")
+
+        # Step 2: Find semantically related states (search all active states)
+        # Get ALL candidates above similarity threshold - let LLM decide which to evolve
         similar_states = await retrieval_service.semantic_search(
             query=new_state.content,
-            limit=max_evolutions * 3,  # Get more candidates for LLM to filter
+            limit=total_active_states,  # Use all active states as limit
             score_threshold=similarity_threshold,
             latest_only=True,  # Only get latest versions (no manual deduplication needed)
         )
@@ -94,11 +97,42 @@ class CascadingEvolutionManager:
             logger.info(f"   No candidates for {new_state.topic}")
             return stats
 
-        # Step 2: LLM decides which topics should evolve
-        evolution_decisions = await self._llm_evolution_analysis(
-            new_state=new_state,
-            candidate_topics=candidate_topics[:max_evolutions],
+        # Step 2: LLM decides which topics should evolve (parallel batch processing)
+        # Split into batches to avoid token limits
+        batch_size = settings.cascading_evolution_batch_size
+
+        # Create batches (process ALL candidates, not just first max_evolutions)
+        batches = [
+            candidate_topics[i : i + batch_size]
+            for i in range(0, len(candidate_topics), batch_size)
+        ]
+
+        if len(batches) > 1:
+            logger.info(
+                f"   📦 Processing {len(candidate_topics)} candidates in {len(batches)} batches (parallel)"
+            )
+        else:
+            logger.info(f"   📦 Processing {len(candidate_topics)} candidates in 1 batch")
+
+        # Process all batches in parallel
+        batch_results = await asyncio.gather(
+            *[
+                self._llm_evolution_analysis(new_state=new_state, candidate_topics=batch)
+                for batch in batches
+            ],
+            return_exceptions=True,  # Don't fail all batches if one fails
         )
+
+        # Collect results, filtering out exceptions
+        all_decisions = []
+        for i, result in enumerate(batch_results):
+            if isinstance(result, Exception):
+                logger.error(f"   ✗ Batch {i+1}/{len(batches)} failed: {result}")
+            else:
+                logger.info(f"   ✓ Batch {i+1}/{len(batches)}: {len(result)} decisions")
+                all_decisions.extend(result)
+
+        evolution_decisions = all_decisions
 
         # Step 3: Concurrently evolve selected topics
         async def evolve_topic(decision: dict[str, Any]) -> dict[str, Any] | None:
@@ -114,20 +148,32 @@ class CascadingEvolutionManager:
                 }
 
             try:
-                # Evolve this topic
-                evolved_state = await memory_service.create_memory_state(
-                    topic=topic,
-                    content=decision["evolved_content"],
-                    parent_state_id=decision["current_state_id"],
-                    metadata={
-                        "cascading_evolution": True,
-                        "triggered_by_topic": new_state.topic,
-                        "triggered_by_state_id": str(new_state.id),
-                        "evolution_reason": decision["reasoning"],
-                    },
-                    tags=[*decision.get("current_tags", []), "cascading_evolved"],
-                    confidence=decision.get("confidence", 0.8),
-                )
+                # Temporarily reduce RelationshipManager log level during cascade
+                import logging
+
+                from tracingrag.services.relationship_manager import logger as rel_logger
+
+                old_level = rel_logger.level
+                rel_logger.setLevel(logging.WARNING)  # Only show warnings/errors
+
+                try:
+                    # Evolve this topic
+                    evolved_state = await memory_service.create_memory_state(
+                        topic=topic,
+                        content=decision["evolved_content"],
+                        parent_state_id=decision["current_state_id"],
+                        metadata={
+                            "cascading_evolution": True,
+                            "triggered_by_topic": new_state.topic,
+                            "triggered_by_state_id": str(new_state.id),
+                            "evolution_reason": decision["reasoning"],
+                        },
+                        tags=[*decision.get("current_tags", []), "cascading_evolved"],
+                        confidence=decision.get("confidence", 0.8),
+                    )
+                finally:
+                    # Restore original log level
+                    rel_logger.setLevel(old_level)
 
                 evolution_info = {
                     "skipped": False,
@@ -214,7 +260,7 @@ class CascadingEvolutionManager:
         for idx, result in enumerate(candidate_topics):
             candidate_desc.append(
                 f"T{idx + 1}. {result.state.topic} v{result.state.version} (similarity: {result.score:.2f})\n"
-                f"    Current content: {result.state.content[:300]}"
+                f"    Current content: {result.state.content}"
             )
 
         candidates_text = "\n\n".join(candidate_desc)
@@ -237,26 +283,42 @@ class CascadingEvolutionManager:
    - The topic's current content already covers the new information
    - The update would be redundant or insignificant
 
-**FOR TOPICS THAT SHOULD EVOLVE**:
-- Provide evolved_content: synthesized content that integrates the new memory with existing topic content
-- Keep it concise but comprehensive (2-4 sentences typically)
-- Maintain the topic's core focus while incorporating relevant new information
+**FOR TOPICS THAT SHOULD EVOLVE - CRITICAL REQUIREMENTS**:
+⚠️ **INFORMATION PRESERVATION (MANDATORY)**:
+   - You MUST preserve ALL existing factual information from the current content
+   - Do NOT omit, summarize, or drop any existing facts, details, attributes, or relationships
+   - Every piece of information in the current content must appear in evolved_content
+   - ONLY add the new relevant information from the new memory
+
+⚠️ **NO HALLUCINATION (MANDATORY)**:
+   - Do NOT add information that is not explicitly stated in either the current content or new memory
+   - Do NOT make inferences, assumptions, or logical deductions beyond what is stated
+   - Do NOT add temporal markers (like "for years", "recently") unless explicitly stated
+   - If uncertain about a detail, preserve the original wording exactly
+
+⚠️ **CONTENT STRUCTURE**:
+   - Provide evolved_content that integrates new information WITH all existing information
+   - Length should be as long as needed to preserve all information (not just 2-4 sentences)
+   - Maintain the topic's core focus while incorporating relevant new information
+   - Structure: [ALL existing facts] + [new relevant facts from new memory]
 
 **CRITICAL**: "reasoning" MUST be under 50 characters. Examples:
 - GOOD: "new info relevant"
 - GOOD: "already covered"
 - BAD: "The new memory provides significant information that would benefit this topic"
 
-Respond with JSON array (include ALL topics, mark should_evolve true/false):
+**CRITICAL - JSON COMPLETENESS**:
+⚠️ You MUST output a complete, valid JSON array
+⚠️ Every object MUST have ALL required fields
+⚠️ Every string MUST be properly closed with quotes
+⚠️ The entire JSON array MUST be complete - do NOT truncate output
+⚠️ If approaching token limit, prioritize completing the JSON structure over adding more details
+
+Respond with ONLY the JSON array below, NO additional text or explanations:
+
 [
-  {{
-    "index": 1,
-    "topic": "topic_name",
-    "should_evolve": true|false,
-    "reasoning": "1-5 words max",
-    "evolved_content": "synthesized content (only if should_evolve=true)",
-    "confidence": 0.0-1.0
-  }},
+  {{"index": 1, "topic": "Topic Name", "should_evolve": true, "reasoning": "brief reason", "evolved_content": "full content here", "confidence": 0.9}},
+  {{"index": 2, "topic": "Another Topic", "should_evolve": false, "reasoning": "not relevant", "evolved_content": null, "confidence": 0.3}},
   ...
 ]
 """
@@ -265,46 +327,52 @@ Respond with JSON array (include ALL topics, mark should_evolve true/false):
             "name": "evolution_analysis",
             "strict": True,
             "schema": {
-                "type": "object",
-                "properties": {
-                    "decisions": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "index": {"type": "integer"},
-                                "topic": {"type": "string"},
-                                "should_evolve": {"type": "boolean"},
-                                "reasoning": {"type": "string", "maxLength": 80},
-                                "evolved_content": {
-                                    "anyOf": [{"type": "string"}, {"type": "null"}]
-                                },
-                                "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-                            },
-                            "required": [
-                                "index",
-                                "topic",
-                                "should_evolve",
-                                "reasoning",
-                                "evolved_content",
-                                "confidence",
-                            ],
-                            "additionalProperties": False,
-                        },
-                    }
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "index": {"type": "integer"},
+                        "topic": {"type": "string"},
+                        "should_evolve": {"type": "boolean"},
+                        "reasoning": {"type": "string", "maxLength": 80},
+                        "evolved_content": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    },
+                    "required": [
+                        "index",
+                        "topic",
+                        "should_evolve",
+                        "reasoning",
+                        "evolved_content",
+                        "confidence",
+                    ],
+                    "additionalProperties": False,
                 },
-                "required": ["decisions"],
-                "additionalProperties": False,
             },
         }
 
+        # Adjust max_tokens based on batch size
+        # Since we now preserve all existing content + add new info, evolved_content can be longer
+        # Estimate: ~1500 tokens per topic (full content + evolved_content), add generous buffer
+        # For Qwen2.5 32B: context is 32K, output can be up to 8K safely
+        estimated_tokens = len(candidate_topics) * 1500 + 3000
+        max_tokens = min(
+            estimated_tokens, 24000
+        )  # Increased to 24K for Qwen (supports up to 32K context)
+
         request = LLMRequest(
-            system_prompt="You are an expert knowledge graph curator that decides when related topics should evolve based on new information. Be selective - only evolve topics that truly benefit from the new information.",
+            system_prompt="""You are an expert knowledge graph curator that decides when related topics should evolve based on new information.
+
+CRITICAL RULES:
+1. Be selective - only evolve topics that truly benefit from the new information
+2. NEVER drop or omit existing factual information when evolving
+3. NEVER add information not explicitly stated in the source content
+4. Preserve complete information integrity - every existing fact must remain""",
             user_message=prompt,
             context="",
             model=settings.analysis_model,
             temperature=0.3,
-            max_tokens=8000,  # Increased for better completion
+            max_tokens=max_tokens,
             json_schema=schema,
         )
 
@@ -316,71 +384,23 @@ Respond with JSON array (include ALL topics, mark should_evolve true/false):
                 logger.error("Empty LLM response for cascading evolution")
                 return []
 
-            # Try to parse JSON with error handling
-            try:
-                result = json.loads(response.content, strict=False)
-            except json.JSONDecodeError as json_err:
-                logger.error(f"JSON parsing failed: {json_err}")
-                logger.error(f"Response content (first 500 chars): {response.content[:500]}")
+            # Parse JSON with automatic cleaning and error recovery
+            # Schema expects array directly
+            result = parse_llm_json(response.content, strict=False, fix_incomplete=True)
+            if result is None:
+                logger.error("Failed to parse cascading evolution JSON")
+                return []
 
-                # Try to fix common issues
-                fixed_content = response.content
-
-                # 1. Remove leading text before JSON
-                if "{" in fixed_content or "[" in fixed_content:
-                    json_start = min(
-                        fixed_content.find("{") if "{" in fixed_content else len(fixed_content),
-                        fixed_content.find("[") if "[" in fixed_content else len(fixed_content),
-                    )
-                    fixed_content = fixed_content[json_start:]
-
-                # 2. Remove trailing text after JSON
-                if "}" in fixed_content or "]" in fixed_content:
-                    json_end = (
-                        max(
-                            fixed_content.rfind("}") if "}" in fixed_content else -1,
-                            fixed_content.rfind("]") if "]" in fixed_content else -1,
-                        )
-                        + 1
-                    )
-                    fixed_content = fixed_content[:json_end]
-
-                # 3. Fix trailing commas
-                fixed_content = fixed_content.replace(",]", "]").replace(",}", "}")
-
-                # 4. Close incomplete JSON
-                open_braces = fixed_content.count("{")
-                close_braces = fixed_content.count("}")
-                open_brackets = fixed_content.count("[")
-                close_brackets = fixed_content.count("]")
-
-                if open_braces > close_braces or open_brackets > close_brackets:
-                    if fixed_content.count('"') % 2 != 0:
-                        fixed_content += '"'
-                    while open_brackets > close_brackets:
-                        fixed_content += "]"
-                        close_brackets += 1
-                    while open_braces > close_braces:
-                        fixed_content += "}"
-                        close_braces += 1
-
-                try:
-                    result = json.loads(fixed_content, strict=False)
-                    logger.info("Successfully parsed JSON after cleaning")
-                except json.JSONDecodeError:
-                    logger.error("Failed to fix JSON, returning empty list")
-                    return []
-
-            # Handle both {"decisions": [...]} and direct [...] formats
-            # Some LLM providers return array directly despite json_schema specification
+            # Handle both array (correct) and object with "decisions" key (LLM mistake)
             if isinstance(result, list):
-                logger.info("Note: LLM returned array format (expected object)")
                 decisions_list = result
             elif isinstance(result, dict) and "decisions" in result:
+                logger.debug("LLM returned object instead of array, extracting 'decisions' field")
                 decisions_list = result["decisions"]
             else:
-                logger.info(f"Unexpected response format: {type(result)}")
-                logger.info(f"   Response: {response.content[:500]}")
+                logger.error(
+                    f"Expected array but got {type(result)}, response: {response.content[:500]}"
+                )
                 return []
 
             decisions = []
@@ -394,13 +414,15 @@ Respond with JSON array (include ALL topics, mark should_evolve true/false):
                 candidate = candidate_topics[idx]
 
                 # Validate required fields
-                if not decision.get("topic") or decision.get("should_evolve") is None:
+                if decision.get("should_evolve") is None:
                     logger.warning("Warning: Missing required fields in decision, skipping")
                     logger.info(f"   Decision: {decision}")
                     continue
 
+                # IMPORTANT: Always use the candidate's actual topic name, not LLM's returned topic
+                # LLM might include version numbers (e.g., "Lisa Wong v2" instead of "Lisa Wong")
                 decision_dict = {
-                    "topic": decision.get("topic", ""),
+                    "topic": candidate.state.topic,  # Use actual topic from candidate
                     "should_evolve": decision.get("should_evolve", False),
                     "reasoning": decision.get("reasoning", "No reasoning provided"),
                     "confidence": decision.get("confidence", 0.5),  # Default confidence

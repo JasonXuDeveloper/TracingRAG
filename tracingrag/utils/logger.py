@@ -43,12 +43,33 @@ class ColoredFormatter(logging.Formatter):
         logging.CRITICAL: Colors.BOLD + Colors.RED,
     }
 
+    # Color for module name
+    MODULE_COLOR = Colors.CYAN
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Cache for processed module names
+        self._module_name_cache: dict[str, str] = {}
+
+    def _get_short_module_name(self, full_name: str) -> str:
+        """Extract and cache the short module name (last part, uppercase)"""
+        if full_name not in self._module_name_cache:
+            # Get last part after final dot
+            short_name = full_name.split(".")[-1].upper()
+            self._module_name_cache[full_name] = short_name
+        return self._module_name_cache[full_name]
+
     def format(self, record: logging.LogRecord) -> str:
         # Add color to level name
         levelname = record.levelname
         if record.levelno in self.LEVEL_COLORS:
             colored_levelname = f"{self.LEVEL_COLORS[record.levelno]}{levelname}{Colors.RESET}"
             record.levelname = colored_levelname
+
+        # Process and color module name
+        short_name = self._get_short_module_name(record.name)
+        colored_name = f"{self.MODULE_COLOR}{short_name}{Colors.RESET}"
+        record.name = colored_name
 
         # Format the message
         result = super().format(record)
@@ -88,10 +109,10 @@ def setup_logger(
 
     # Use custom format if provided, otherwise use default
     if format_string is None:
-        format_string = "%(levelname)s [%(name)s] %(message)s"
+        format_string = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 
-    # Add colored formatter
-    formatter = ColoredFormatter(format_string)
+    # Add colored formatter with time format
+    formatter = ColoredFormatter(format_string, datefmt="%Y-%m-%d %H:%M:%S")
     handler.setFormatter(formatter)
 
     logger.addHandler(handler)
@@ -99,16 +120,26 @@ def setup_logger(
     return logger
 
 
-def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
+def get_logger(name: str, level: int | None = None) -> logging.Logger:
     """Get or create a logger with standard configuration
 
     Args:
         name: Logger name (usually __name__)
-        level: Logging level
+        level: Logging level (if None, reads from settings.log_level)
 
     Returns:
         Logger instance
     """
+    if level is None:
+        # Read from settings
+        try:
+            from tracingrag.config import settings
+
+            level = getattr(logging, settings.log_level.upper(), logging.INFO)
+        except Exception:
+            # Fallback to INFO if settings not available
+            level = logging.INFO
+
     return setup_logger(name, level)
 
 

@@ -63,7 +63,7 @@ class PromotionResult(BaseModel):
     new_version: int | None = None
     conflicts_detected: list[dict] = []
     conflicts_resolved: list[dict] = []
-    synthesis_sources: list[str] = []
+    synthesis_sources: list[dict] = []
     quality_checks: dict[str, Any] = {}
     reasoning: str = ""
     confidence: float = 0.0
@@ -103,14 +103,14 @@ class TracingRAGClient:
         self,
         base_url: str = "http://localhost:8000",
         api_key: str | None = None,
-        timeout: float = 30.0,
+        timeout: float = 3000.0,
     ):
         """Initialize TracingRAG client
 
         Args:
             base_url: Base URL of TracingRAG API
             api_key: Optional API key for authentication
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (default 3000s for LLM operations)
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
@@ -429,6 +429,7 @@ class TracingRAGClient:
             new_state=new_state,
             promoted_from_version=promoted_from_version,
             new_version=api_response.get("new_version"),
+            synthesis_sources=api_response.get("synthesis_sources", []),
             reasoning=api_response.get("reasoning", ""),
             confidence=api_response.get("confidence", 0.0),
             manual_review_needed=api_response.get("manual_review_needed", False),
@@ -484,14 +485,14 @@ class AsyncTracingRAGClient:
         self,
         base_url: str = "http://localhost:8000",
         api_key: str | None = None,
-        timeout: float = 30.0,
+        timeout: float = 3000.0,
     ):
         """Initialize async TracingRAG client
 
         Args:
             base_url: Base URL of TracingRAG API
             api_key: Optional API key for authentication
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (default 3000s for LLM operations)
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
@@ -674,6 +675,7 @@ class AsyncTracingRAGClient:
             new_state=new_state,
             promoted_from_version=promoted_from_version,
             new_version=api_response.get("new_version"),
+            synthesis_sources=api_response.get("synthesis_sources", []),
             reasoning=api_response.get("reasoning", ""),
             confidence=api_response.get("confidence", 0.0),
             manual_review_needed=api_response.get("manual_review_needed", False),

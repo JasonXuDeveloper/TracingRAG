@@ -217,6 +217,69 @@ class ContextBuilder:
 
         return "\n".join(sections)
 
+    def format_states_batch_for_llm(
+        self,
+        states: list[MemoryState],
+        start_index: int,
+        total_count: int,
+        include_metadata: bool = True,
+    ) -> str:
+        """Format a batch of states with global reference numbers
+
+        Args:
+            states: Memory states in this batch
+            start_index: Global start index (1-based)
+            total_count: Total number of states across all batches
+            include_metadata: Whether to include metadata
+
+        Returns:
+            Formatted context string with global reference numbers
+        """
+        sections = []
+
+        # Header indicating batch position
+        end_index = start_index + len(states) - 1
+        sections.append(f"# References {start_index}-{end_index} (of {total_count} total)\n\n")
+
+        # Format each state with global reference number
+        for idx, state in enumerate(states):
+            global_ref = start_index + idx
+            sections.append(
+                self._format_state_with_ref(
+                    state, global_ref=global_ref, include_metadata=include_metadata
+                )
+            )
+
+        return "\n".join(sections)
+
+    def _format_state_with_ref(
+        self, state: MemoryState, global_ref: int, include_metadata: bool = True
+    ) -> str:
+        """Format a single memory state with global reference number
+
+        Args:
+            state: Memory state to format
+            global_ref: Global reference number (e.g., 23 out of 100)
+            include_metadata: Whether to include metadata
+
+        Returns:
+            Formatted state string
+        """
+        lines = [f"## [{global_ref}] {state.topic}\n"]
+
+        if include_metadata:
+            lines.append(
+                f"Version: {state.version} | "
+                f"Timestamp: {state.timestamp.isoformat()} | "
+                f"Confidence: {state.confidence}\n"
+            )
+            if state.tags:
+                lines.append(f"Tags: {', '.join(state.tags)}\n")
+
+        lines.append(f"\n{state.content}\n")
+
+        return "".join(lines)
+
     def _format_state(self, state: MemoryState, include_metadata: bool = True) -> str:
         """Format a single memory state"""
         lines = [f"## Topic: {state.topic}\n"]
@@ -233,6 +296,19 @@ class ContextBuilder:
         lines.append(f"\n{state.content}\n")
 
         return "".join(lines)
+
+    def estimate_state_tokens(self, state: MemoryState) -> int:
+        """Estimate token count for a single state
+
+        Args:
+            state: Memory state
+
+        Returns:
+            Estimated token count
+        """
+        formatted = self._format_state(state, include_metadata=True)
+        # Rough estimation: 1 token ≈ 3.5 characters
+        return len(formatted) // 3
 
     async def _get_historical_context(
         self,

@@ -133,7 +133,7 @@ class TestEdge:
         props = edge.to_neo4j_properties()
 
         assert "relationship_type" in props
-        assert props["relationship_type"] == "causes"
+        assert props["relationship_type"] == "CAUSES"  # Neo4j convention is uppercase
         assert props["strength"] == 0.9
         assert props["description"] == "Test edge"
         assert props["is_active"] is True

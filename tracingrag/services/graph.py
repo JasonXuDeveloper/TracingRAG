@@ -444,20 +444,13 @@ class GraphService:
         async with driver.session() as session:
             query = """
                 MATCH (source:MemoryState {id: $state_id})-[r]->(target:MemoryState)
-                WHERE $active_only = false OR r.is_active = true
+                WHERE $active_only = false OR COALESCE(r.is_active, true) = true
                 RETURN
                     source.id as source_id,
                     target.id as target_id,
                     type(r) as rel_type,
-                    r.strength as strength,
-                    r.description as description,
-                    r.created_at as created_at,
-                    r.last_accessed as last_accessed,
-                    r.access_count as access_count,
-                    r.metadata as metadata,
-                    r.is_active as is_active,
-                    r.valid_from as valid_from,
-                    r.valid_until as valid_until
+                    COALESCE(r.strength, 0.5) as strength,
+                    COALESCE(r.metadata, {}) as metadata
             """
 
             result = await session.run(query, state_id=str(state_id), active_only=active_only)

@@ -42,7 +42,6 @@ class Settings(BaseSettings):
     query_analyzer_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For query analysis
     planner_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For agent query planning
     manager_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For agent memory management
-    auto_link_model: str = "anthropic/claude-3-haiku"  # For auto-linking memory relationships
 
     # Embedding Configuration
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
@@ -88,10 +87,9 @@ class Settings(BaseSettings):
     auto_promotion_enabled: bool = False
     max_trace_history_context: int = 10
 
-    # Relationship Management
-    intelligent_relationship_updates: bool = True
+    # Relationship Management (always enabled via RelationshipManager)
     relationship_update_similarity_threshold: float = (
-        0.4  # Min similarity for candidates (higher = more selective)
+        0.45  # Min similarity for candidates (higher = more selective)
     )
     relationship_update_llm_batch_size: int = 30  # Batch size for LLM processing
 
@@ -100,10 +98,10 @@ class Settings(BaseSettings):
     # Relationship propagation is handled by RelationshipManager
     enable_cascading_evolution: bool = True
     cascading_evolution_similarity_threshold: float = (
-        0.4  # Min similarity for evolution candidates (higher = more selective)
+        0.45  # Min similarity for evolution candidates (higher = more selective)
     )
-    cascading_evolution_max_topics: int = (
-        10  # Max topics to analyze per new memory (LLM will decide which to evolve)
+    cascading_evolution_batch_size: int = (
+        5  # Process this many topics per LLM call (smaller = less token usage, more parallel calls)
     )
 
     # Agent Configuration
@@ -121,6 +119,12 @@ class Settings(BaseSettings):
     # Rate Limiting
     rate_limit_enabled: bool = True
     rate_limit_requests_per_minute: int = 100
+
+    # LLM Retry Configuration
+    llm_max_retries: int = 5  # Maximum number of retry attempts for LLM calls
+    llm_retry_base_delay: float = 1.0  # Base delay in seconds for exponential backoff
+    llm_retry_max_delay: float = 60.0  # Maximum delay in seconds between retries
+    fallback_llm_max_retries: int = 3  # Maximum retries for fallback model after primary fails
 
     # Security
     secret_key: str = "your-secret-key-here-change-in-production"

@@ -6,7 +6,8 @@ from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, func, literal, select
+from sqlalchemy.dialects.postgresql import ARRAY
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from tracingrag.agents.service import AgentService
@@ -91,23 +92,22 @@ async def lifespan(app: FastAPI):
     promotion_service = PromotionService(policy=promotion_policy)
 
     # Print model configuration
-    logger.info("\n" + "=" * 70)
-    logger.info("🤖 LLM Model Configuration:")
-    logger.info("=" * 70)
-    logger.info(f"  Main Query Model:      {settings.default_llm_model}")
-    logger.info(f"  Fallback Model:        {settings.fallback_llm_model}")
-    logger.info(f"  Analysis Model:        {settings.analysis_model}")
-    logger.info(f"  Evaluation Model:      {settings.evaluation_model}")
-    logger.info(f"  Query Analyzer Model:  {settings.query_analyzer_model}")
-    logger.info(f"  Planner Model:         {settings.planner_model}")
-    logger.info(f"  Manager Model:         {settings.manager_model}")
-    logger.info(f"  Auto-Link Model:       {settings.auto_link_model}")
-    logger.info("=" * 70)
+    logger.warning("\n" + "=" * 70)
+    logger.warning("🤖 LLM Model Configuration:")
+    logger.warning("=" * 70)
+    logger.warning(f"  Main Query Model:      {settings.default_llm_model}")
+    logger.warning(f"  Fallback Model:        {settings.fallback_llm_model}")
+    logger.warning(f"  Analysis Model:        {settings.analysis_model}")
+    logger.warning(f"  Evaluation Model:      {settings.evaluation_model}")
+    logger.warning(f"  Query Analyzer Model:  {settings.query_analyzer_model}")
+    logger.warning(f"  Planner Model:         {settings.planner_model}")
+    logger.warning(f"  Manager Model:         {settings.manager_model}")
+    logger.warning("=" * 70)
     if settings.auto_promotion_enabled:
-        logger.info("✓ TracingRAG services initialized (Auto-promotion: ENABLED)")
+        logger.warning("✓ TracingRAG services initialized (Auto-promotion: ENABLED)")
     else:
-        logger.info("✓ TracingRAG services initialized (Auto-promotion: Manual)")
-    logger.info("")
+        logger.warning("✓ TracingRAG services initialized (Auto-promotion: Manual)")
+    logger.warning("")
     yield
 
     # Shutdown
@@ -243,9 +243,9 @@ async def health_check():
     )
 
 
-@app.get("/metrics", response_model=MetricsResponse, tags=["System"])
-async def get_metrics():
-    """Get system metrics"""
+@app.get("/api/v1/metrics", response_model=MetricsResponse, tags=["System"])
+async def get_application_metrics():
+    """Get application metrics in JSON format"""
     async with get_session() as session:
         # Count total memories
         total_memories_result = await session.execute(select(func.count(MemoryStateDB.id)))
@@ -261,8 +261,12 @@ async def get_metrics():
         avg_versions = total_memories / total_topics if total_topics > 0 else 0
 
         # Count promotions (states with "promoted" tag)
+        # Use overlap operator for PostgreSQL ARRAY type: tags && ARRAY['promoted']
+        # This checks if the array contains the "promoted" tag
         promotions_result = await session.execute(
-            select(func.count(MemoryStateDB.id)).where(MemoryStateDB.tags.contains(["promoted"]))
+            select(func.count(MemoryStateDB.id)).where(
+                MemoryStateDB.tags.op("&&")(cast(literal(["promoted"]), ARRAY(String)))
+            )
         )
         total_promotions = promotions_result.scalar() or 0
 
@@ -476,8 +480,8 @@ async def query_rag(request: QueryRequest):
                 metadata=result.metadata,
             )
         else:
-            # Use standard RAG
-            result = await rag_service.query(query=request.query)
+            # Use parallel iterative RAG (MapReduce-style divide-and-conquer processing)
+            result = await rag_service.query_iterative_parallel(query=request.query)
 
             # Fetch memory states from source IDs
             sources = []
@@ -522,6 +526,23 @@ async def promote_memory(request: PromoteMemoryRequest):
 
         result = await promotion_service.promote_memory(service_request)
 
+        # Convert SynthesisSource objects to dicts for JSON serialization
+        synthesis_sources = [
+            {
+                "state_id": str(source.state_id),
+                "topic": source.topic,
+                "content": source.content[:200] + "..."
+                if len(source.content) > 200
+                else source.content,
+                "version": source.version,
+                "timestamp": source.timestamp.isoformat(),
+                "confidence": source.confidence,
+                "weight": source.weight,
+                "reasoning": source.reasoning,
+            }
+            for source in result.synthesized_from
+        ]
+
         return PromoteMemoryResponse(
             success=result.success,
             topic=result.topic,
@@ -529,6 +550,7 @@ async def promote_memory(request: PromoteMemoryRequest):
             previous_state_id=result.previous_state_id,
             new_state_id=result.new_state_id,
             synthesized_from_count=len(result.synthesized_from),
+            synthesis_sources=synthesis_sources,
             conflicts_detected_count=len(result.conflicts_detected),
             conflicts_resolved_count=len(result.conflicts_resolved),
             edges_updated_count=len(result.edges_updated),
@@ -601,5 +623,6 @@ async def root():
         "description": "Enhanced RAG system with temporal tracing, graph relationships, and agentic retrieval",
         "docs": "/docs",
         "health": "/health",
+        "metrics": "/api/v1/metrics",
         "prometheus_metrics": "/metrics",
     }

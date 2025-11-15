@@ -768,7 +768,17 @@ async def simulate_npc_interactions():
             print("   📝 Synthesized content:")
             print(f"      {new_state.content[:400]}...")
             print(f"\n   📚 Sources: {len(promotion.synthesis_sources)}")
-            print(f"   🎯 Confidence: {promotion.confidence:.2f}")
+
+            # Show synthesis sources details
+            if promotion.synthesis_sources:
+                print("   📋 Synthesis Sources:")
+                for i, source in enumerate(promotion.synthesis_sources[:5], 1):
+                    print(
+                        f"      {i}. {source['topic']} (v{source['version']}, weight={source['weight']:.2f})"
+                    )
+                    print(f"         {source['reasoning']}")
+
+            print(f"\n   🎯 Confidence: {promotion.confidence:.2f}")
             if promotion.reasoning:
                 print(f"   💭 Reasoning: {promotion.reasoning[:200]}...")
         else:

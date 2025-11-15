@@ -82,6 +82,7 @@ def _ensure_payload_indexes(client: QdrantClient, collection_name: str) -> None:
         ("is_consolidated", models.PayloadSchemaType.BOOL),
         ("consolidation_level", models.PayloadSchemaType.INTEGER),
         ("is_latest", models.PayloadSchemaType.BOOL),
+        ("is_active", models.PayloadSchemaType.BOOL),
     ]
 
     for field_name, field_schema in indexes_to_create:

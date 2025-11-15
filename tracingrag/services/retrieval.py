@@ -1,5 +1,6 @@
 """Retrieval service implementing semantic, graph, and temporal retrieval strategies"""
 
+import hashlib
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -11,6 +12,7 @@ from tracingrag.storage.database import get_session
 from tracingrag.storage.models import MemoryStateDB, TopicLatestStateDB
 from tracingrag.storage.neo4j_client import get_related_memories
 from tracingrag.storage.qdrant import search_similar
+from tracingrag.storage.redis_client import cache_service
 from tracingrag.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -89,6 +91,7 @@ class RetrievalService:
         score_threshold: float = 0.5,
         filter_conditions: dict[str, Any] | None = None,
         latest_only: bool = True,
+        use_cache: bool = True,
     ) -> list[RetrievalResult]:
         """Semantic retrieval with latest state tracking
 
@@ -98,10 +101,42 @@ class RetrievalService:
             score_threshold: Minimum similarity score (0-1)
             filter_conditions: Qdrant filter conditions
             latest_only: If True, only return latest state per topic
+            use_cache: If True, use Redis caching for retrieval results
 
         Returns:
             List of retrieval results ranked by semantic similarity
         """
+        # Generate cache key
+        query_hash = hashlib.sha256(query.encode()).hexdigest()[:16]
+
+        # Try to get from cache
+        if use_cache:
+            cached_results_data = await cache_service.get_retrieval_results(
+                query_hash, limit, score_threshold
+            )
+
+            if cached_results_data:
+                # Reconstruct RetrievalResult objects from cached data
+                logger.debug(f"Cache HIT for query: {query[:50]}...")
+                async with get_session() as session:
+                    state_ids = [UUID(r["state_id"]) for r in cached_results_data]
+                    result = await session.execute(
+                        select(MemoryStateDB).where(MemoryStateDB.id.in_(state_ids))
+                    )
+                    states = {state.id: state for state in result.scalars().all()}
+
+                    return [
+                        RetrievalResult(
+                            state=states[UUID(r["state_id"])],
+                            score=r["score"],
+                            retrieval_type=r["retrieval_type"],
+                        )
+                        for r in cached_results_data
+                        if UUID(r["state_id"]) in states
+                    ]
+
+        logger.debug(f"Cache MISS for query: {query[:50]}...")
+
         # Generate query embedding
         query_embedding = await generate_embedding(query)
 
@@ -141,6 +176,21 @@ class RetrievalService:
                         retrieval_type="semantic",
                     )
                 )
+
+        # Cache results for future queries
+        if use_cache and results:
+            # Serialize results for caching
+            results_data = [
+                {
+                    "state_id": str(r.state.id),
+                    "score": r.score,
+                    "retrieval_type": r.retrieval_type,
+                }
+                for r in results
+            ]
+            await cache_service.set_retrieval_results(
+                query_hash, limit, score_threshold, results_data
+            )
 
         return results
 

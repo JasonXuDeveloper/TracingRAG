@@ -33,6 +33,7 @@ from tracingrag.services.memory import MemoryService
 from tracingrag.services.retrieval import RetrievalService
 from tracingrag.storage.database import get_session
 from tracingrag.storage.models import MemoryStateDB
+from tracingrag.utils.json_utils import parse_llm_json
 
 
 class PromotionService:
@@ -642,12 +643,14 @@ Your task:
 4. Focus on the most recent and important information
 5. Maintain factual accuracy and cite sources when relevant
 
-Provide:
-1. Synthesized content (comprehensive but concise)
-2. Reasoning for synthesis approach
-3. Confidence score (0.0-1.0)
+**CRITICAL**: You MUST respond with EXACTLY this JSON structure:
+{{
+  "content": "Your synthesized content here",
+  "reasoning": "Your synthesis reasoning here",
+  "confidence": 0.X
+}}
 
-Respond with JSON."""
+DO NOT use nested structures or alternative field names. The response must be a flat JSON object with exactly these three fields at the top level."""
 
         schema = {
             "name": "content_synthesis",
@@ -684,21 +687,50 @@ Respond with JSON."""
         response = None
         try:
             response = await self.llm_client.generate(request)
-            result = json.loads(response.content, strict=False)
+            result = parse_llm_json(response.content, strict=False, fix_incomplete=True)
+            if result is None:
+                raise json.JSONDecodeError("Failed to parse JSON", response.content, 0)
 
             # Handle different field names (LLM might use different names despite schema)
-            # Try both snake_case and camelCase variants
-            content = (
-                result.get("content")
-                or result.get("synthesized_content")
-                or result.get("synthesizedContent")
-            )
-            reasoning = result.get("reasoning")
-            confidence = (
-                result.get("confidence")
-                or result.get("confidence_score")
-                or result.get("confidenceScore")
-            )
+            # Try both snake_case and camelCase variants, and nested structures
+
+            # Check if LLM returned nested structure
+            if "synthesized_memory_state" in result:
+                nested = result["synthesized_memory_state"]
+                # Convert the entire nested object to a JSON string as content
+                import json as json_module
+
+                content = json_module.dumps(nested, indent=2, ensure_ascii=False)
+                # Extract reasoning - check both result level and nested level
+                reasoning = result.get("synthesis_reasoning")
+                if reasoning is None:
+                    reasoning = nested.get("synthesis_reasoning", {})
+                if isinstance(reasoning, dict):
+                    # If reasoning is a dict, convert to string
+                    reasoning = json_module.dumps(reasoning, indent=2, ensure_ascii=False)
+                else:
+                    reasoning = str(reasoning) if reasoning else "No reasoning provided"
+                # Extract confidence - check result level first, then nested level
+                confidence = result.get("confidence_score") or result.get("confidence")
+                if confidence is None:
+                    confidence = nested.get("confidence_score") or nested.get("confidence")
+                if confidence is None:
+                    # Check in metadata if present
+                    metadata = nested.get("metadata", {})
+                    confidence = metadata.get("confidence_score") or metadata.get("confidence")
+            else:
+                # Flat structure (expected format)
+                content = (
+                    result.get("content")
+                    or result.get("synthesized_content")
+                    or result.get("synthesizedContent")
+                )
+                reasoning = result.get("reasoning")
+                confidence = (
+                    result.get("confidence")
+                    or result.get("confidence_score")
+                    or result.get("confidenceScore")
+                )
 
             # Validate required fields
             if not content:
@@ -743,7 +775,12 @@ Guidelines:
 - Be comprehensive but concise
 - Cite sources when making claims
 - Acknowledge uncertainty when appropriate
-- Maintain consistent tone and style"""
+- Maintain consistent tone and style
+
+**JSON FORMAT REQUIREMENT**:
+You MUST respond with a flat JSON object containing exactly three fields: "content", "reasoning", and "confidence".
+DO NOT use nested structures, alternative field names, or additional wrapper objects.
+Your response must be parseable as a simple JSON object with these three top-level keys."""
 
     async def _perform_quality_checks(
         self, synthesized_content: str, sources: list[SynthesisSource]

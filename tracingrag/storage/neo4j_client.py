@@ -144,7 +144,21 @@ async def create_evolution_edge(
         child_id: UUID of the child state
         relationship_type: Type of relationship (EVOLVED_TO, SUPERSEDED_BY, etc.)
         edge_properties: Additional properties for the relationship (will be stored as JSON string)
+
+    Raises:
+        ValueError: If relationship_type is not in RelationshipType enum
     """
+    from tracingrag.core.models.graph import RelationshipType
+
+    # Validate relationship type (must be in enum)
+    try:
+        RelationshipType(relationship_type)
+    except ValueError:
+        raise ValueError(
+            f"Invalid relationship type '{relationship_type}'. "
+            f"Must be one of: {[rt.value for rt in RelationshipType]}"
+        )
+
     driver = get_neo4j_driver()
 
     # Prepare edge properties - ensure they're a dict
@@ -183,7 +197,7 @@ async def get_parent_relationships(
     async with driver.session(database=settings.neo4j_database) as session:
         query = """
         MATCH (parent:MemoryState {id: $parent_id})-[r]->(target:MemoryState)
-        WHERE type(r) IN ['RELATED_TO', 'DEPENDS_ON', 'CAUSED_BY', 'SIMILAR_TO']
+        WHERE type(r) IN ['RELATES_TO', 'DEPENDS_ON', 'CAUSED_BY', 'SIMILAR_TO']
         RETURN
             target.id as target_id,
             target.topic as target_topic,
@@ -196,9 +210,15 @@ async def get_parent_relationships(
         relationships = []
 
         async for record in result:
+            # Skip relationships with invalid target_id
+            target_id = record["target_id"]
+            if not target_id or not str(target_id).strip():
+                logger.warning(f"Skipping relationship with invalid target_id: {target_id}")
+                continue
+
             relationships.append(
                 {
-                    "target_id": record["target_id"],
+                    "target_id": target_id,
                     "target_topic": record["target_topic"],
                     "target_version": record["target_version"],
                     "rel_type": record["rel_type"],
@@ -263,19 +283,19 @@ async def inherit_parent_relationships(
     exclude_types = exclude_types or ["EVOLVED_TO", "SUPERSEDED_BY", "BELONGS_TO"]
 
     async with driver.session(database=settings.neo4j_database) as session:
-        # Copy RELATED_TO relationships
+        # Copy RELATES_TO relationships
         related_query = """
-        MATCH (parent:MemoryState {id: $parent_id})-[r:RELATED_TO]->(target)
+        MATCH (parent:MemoryState {id: $parent_id})-[r:RELATES_TO]->(target)
         MATCH (child:MemoryState {id: $child_id})
         WITH child, target, properties(r) as rel_props
-        MERGE (child)-[new_r:RELATED_TO]->(target)
+        MERGE (child)-[new_r:RELATES_TO]->(target)
         SET new_r = rel_props
         RETURN count(new_r) as count
         """
 
         total_inherited = 0
 
-        # Copy RELATED_TO relationships
+        # Copy RELATES_TO relationships
         result = await session.run(
             related_query,
             parent_id=str(parent_id),
@@ -294,20 +314,67 @@ async def create_memory_relationship(
     relationship_type: str,
     properties: dict[str, Any] | None = None,
     replace_existing: bool = False,
+    bound_to_version: bool | None = None,
 ) -> None:
     """Create a relationship between two memory states
 
     Args:
         source_id: UUID of the source memory state
         target_id: UUID of the target memory state
-        relationship_type: Type of relationship (RELATED_TO, DEPENDS_ON, etc.)
+        relationship_type: Type of relationship (RELATES_TO, DEPENDS_ON, etc.)
         properties: Additional properties for the relationship
         replace_existing: If True, replace existing relationship of same type between these nodes
+        bound_to_version: If True, bind to specific target version (won't auto-update).
+                         If None, auto-determine based on relationship type.
     """
+    from tracingrag.core.models.graph import RelationshipType
+
     driver = get_neo4j_driver()
-    properties_json = json.dumps(properties) if properties else "{}"
+
+    # Validate relationship type
+    try:
+        rel_type_enum = RelationshipType(relationship_type)
+    except ValueError:
+        # Invalid relationship type - log warning and skip creation
+        logger.warning(
+            f"Invalid relationship type '{relationship_type}' - must be one of {[e.value for e in RelationshipType]}. "
+            f"Skipping relationship creation between {source_id} and {target_id}."
+        )
+        return
+
+    # Auto-determine version binding based on relationship type
+    if bound_to_version is None:
+        bound_to_version = RelationshipType.is_version_bound(rel_type_enum)
 
     async with driver.session(database=settings.neo4j_database) as session:
+        # Get target version for version binding
+        target_version = None
+        if bound_to_version:
+            version_query = """
+            MATCH (target:MemoryState {id: $target_id})
+            RETURN target.version as version
+            """
+            result = await session.run(version_query, target_id=str(target_id))
+            record = await result.single()
+            if record:
+                target_version = record["version"]
+
+        # Merge properties with version binding info
+        props = properties.copy() if properties else {}
+        props["bound_to_version"] = bound_to_version
+        if target_version is not None:
+            props["target_version_at_creation"] = target_version
+
+        # Initialize importance tracking fields
+        if "importance" not in props:
+            props["importance"] = props.get("strength", 0.5)  # Default to strength
+        if "access_count" not in props:
+            props["access_count"] = 0
+        if "last_accessed" not in props:
+            props["last_accessed"] = None
+
+        properties_json = json.dumps(props)
+
         if replace_existing:
             # Delete existing relationship of same type first
             delete_query = f"""
@@ -365,7 +432,7 @@ async def delete_memory_relationship(
         else:
             query = """
             MATCH (source:MemoryState {id: $source_id})-[r]->(target:MemoryState {id: $target_id})
-            WHERE type(r) IN ['RELATED_TO', 'DEPENDS_ON', 'CAUSED_BY', 'SIMILAR_TO']
+            WHERE type(r) IN ['RELATES_TO', 'DEPENDS_ON', 'CAUSED_BY', 'SIMILAR_TO']
             DELETE r
             RETURN count(r) as deleted_count
             """
@@ -377,6 +444,49 @@ async def delete_memory_relationship(
         )
         record = await result.single()
         return record["deleted_count"] if record else 0
+
+
+async def update_relationship_access(
+    source_id: UUID,
+    target_id: UUID,
+    relationship_type: str,
+) -> None:
+    """Update access tracking for a relationship (called when relationship is used in query)
+
+    Args:
+        source_id: UUID of the source memory state
+        target_id: UUID of the target memory state
+        relationship_type: Type of relationship
+    """
+    from datetime import datetime
+
+    driver = get_neo4j_driver()
+
+    async with driver.session(database=settings.neo4j_database) as session:
+        query = f"""
+        MATCH (source:MemoryState {{id: $source_id}})-[r:{relationship_type}]->(target:MemoryState {{id: $target_id}})
+        SET r.properties = apoc.convert.fromJsonMap(
+            apoc.convert.toJson(
+                apoc.map.setKey(
+                    apoc.map.setKey(
+                        apoc.convert.fromJsonMap(r.properties),
+                        'access_count',
+                        coalesce(apoc.convert.fromJsonMap(r.properties).access_count, 0) + 1
+                    ),
+                    'last_accessed',
+                    $timestamp
+                )
+            )
+        )
+        RETURN r
+        """
+
+        await session.run(
+            query,
+            source_id=str(source_id),
+            target_id=str(target_id),
+            timestamp=datetime.utcnow().isoformat(),
+        )
 
 
 async def get_topic_history(
@@ -510,9 +620,7 @@ async def delete_memory_node(state_id: UUID) -> None:
             orphan_check = await session.run(
                 """
                 MATCH (t:Topic {name: $topic_name})
-                OPTIONAL MATCH (t)<-[:BELONGS_TO]-(m:MemoryState)
-                WITH t, count(m) as state_count
-                WHERE state_count = 0
+                WHERE NOT EXISTS((t)<-[:BELONGS_TO]-(:MemoryState))
                 RETURN t.name as orphan_topic
                 """,
                 topic_name=topic_name,

@@ -119,6 +119,9 @@ class PromoteMemoryResponse(BaseModel):
     previous_state_id: UUID | None
     new_state_id: UUID | None
     synthesized_from_count: int
+    synthesis_sources: list[dict] = Field(
+        default_factory=list, description="Sources used in synthesis"
+    )
     conflicts_detected_count: int
     conflicts_resolved_count: int
     edges_updated_count: int

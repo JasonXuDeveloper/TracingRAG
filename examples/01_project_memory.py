@@ -127,27 +127,40 @@ async def main():
         # ====================================================================
         print("🔍 Phase 4: Querying project knowledge...")
 
-        # Simple query
-        print("\n   Query 1: 'What is our current architecture?'")
+        # Query 1: Simple query with agent mode for better retrieval
+        print("\n   Query 1: 'What is our current architecture approach?'")
         result1 = await client.query(
-            "What is our current architecture?",
+            "What is our current architecture approach? Describe the technology stack and design decisions.",
             include_related=True,
         )
         if result1.answer:
-            print(f"   Answer: {result1.answer[:200]}...")
+            print(f"   Answer: {result1.answer[:250]}...")
             print(f"   Sources: {len(result1.sources)} documents")
+            if result1.reasoning:
+                print(f"   Reasoning: {result1.reasoning[:150]}...")
 
-        # Historical query
-        print("\n   Query 2: 'Why did we change from microservices?'")
+        # Query 2: Historical query with agent mode
+        print("\n   Query 2: 'Why did we change from microservices to modular monolith?'")
         result2 = await client.query(
-            "Why did we change from microservices?",
+            "Why did we change from microservices to modular monolith? What were the challenges?",
             include_history=True,
             use_agent=True,  # Use agent for more intelligent retrieval
         )
         if result2.answer:
-            print(f"   Answer: {result2.answer[:200]}...")
+            print(f"   Answer: {result2.answer[:250]}...")
             if result2.reasoning:
-                print(f"   Reasoning: {result2.reasoning[:100]}...")
+                print(f"   Reasoning: {result2.reasoning[:150]}...")
+
+        # Query 3: Technology-specific query
+        print("\n   Query 3: 'What database and caching solutions are we using?'")
+        result3 = await client.query(
+            "What database and caching solutions are we using in our current tech stack?",
+            use_agent=True,
+            include_related=True,
+        )
+        if result3.answer:
+            print(f"   Answer: {result3.answer[:250]}...")
+            print(f"   Sources: {len(result3.sources)} documents")
 
         # ====================================================================
         # Phase 5: View Project Evolution
@@ -186,8 +199,16 @@ async def main():
     print("Key Takeaways:")
     print("   - TracingRAG tracks complete project evolution")
     print("   - Each decision and change is preserved with context")
-    print("   - Queries understand history and relationships")
+    print("   - Use 'use_agent=True' for intelligent query retrieval")
+    print("   - Agent mode combines semantic search, graph relationships, and history")
+    print("   - More specific queries with keywords yield better results")
     print("   - Memory promotion synthesizes information intelligently")
+    print()
+    print("Query Best Practices:")
+    print("   ✓ Enable use_agent=True for complex queries")
+    print("   ✓ Include specific keywords and context in queries")
+    print("   ✓ Use include_history=True for temporal questions")
+    print("   ✓ Use include_related=True to leverage graph relationships")
     print()
 
 

@@ -189,6 +189,9 @@ class MemoryStateDB(Base):
     # Embedding (float array - ARRAY(Float) for PostgreSQL, JSON for SQLite)
     embedding = Column(FloatArrayType, nullable=True)
 
+    # Version tracking - for efficient queries (avoid version deduplication)
+    is_active = Column(Boolean, default=True, index=True, nullable=False)  # False when superseded
+
     # Trace relationship
     parent_state_id = Column(PGUUID(as_uuid=True), ForeignKey("memory_states.id"), nullable=True)
     parent = relationship("MemoryStateDB", remote_side=[id], backref="children")
