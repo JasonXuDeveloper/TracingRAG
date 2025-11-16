@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from tracingrag.config import settings
@@ -33,7 +34,74 @@ from tracingrag.services.memory import MemoryService
 from tracingrag.services.retrieval import RetrievalService
 from tracingrag.storage.database import get_session
 from tracingrag.storage.models import MemoryStateDB
-from tracingrag.utils.json_utils import parse_llm_json
+
+# ============================================================================
+# Pydantic Schemas for LLM Structured Outputs
+# ============================================================================
+
+
+class ConflictDetectionItem(BaseModel):
+    """Single conflict item in conflict detection response"""
+
+    state_indices: list[int] = Field(..., description="Indices of conflicting states (1-based)")
+    conflict_type: str = Field(
+        ...,
+        description="Type of conflict",
+        pattern="^(contradiction|inconsistency|ambiguity|temporal)$",
+    )
+    description: str = Field(..., description="Description of the conflict")
+    severity: float = Field(..., ge=0.0, le=1.0, description="Severity score")
+    resolution_strategy: str = Field(
+        ...,
+        description="Recommended resolution strategy",
+        pattern="^(latest_wins|highest_confidence|merge|manual|llm_decide)$",
+    )
+
+
+class ConflictDetectionResponse(BaseModel):
+    """Schema for conflict detection LLM response"""
+
+    conflicts: list[ConflictDetectionItem] = Field(
+        default_factory=list, description="List of conflicts"
+    )
+
+
+class ConflictResolutionResponse(BaseModel):
+    """Schema for conflict resolution LLM response"""
+
+    resolution: str = Field(..., description="Resolution explanation")
+    winning_state_index: int | None = Field(None, description="Index of winning state")
+    merged_content: str | None = Field(None, description="Merged content if applicable")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
+    manual_review_needed: bool = Field(..., description="Whether manual review is needed")
+
+
+class ContentSynthesisResponse(BaseModel):
+    """Schema for content synthesis LLM response"""
+
+    content: str = Field(..., description="Synthesized content")
+    reasoning: str = Field(..., description="Reasoning for synthesis")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
+
+
+class HallucinationCheckResponse(BaseModel):
+    """Schema for hallucination check LLM response"""
+
+    passed: bool = Field(..., description="Whether check passed")
+    score: float = Field(..., ge=0.0, le=1.0, description="Quality score")
+    unsupported_claims: list[str] = Field(
+        default_factory=list, description="Unsupported claims found"
+    )
+    recommendations: list[str] = Field(default_factory=list, description="Recommendations")
+
+
+class PromotionEvaluationResponse(BaseModel):
+    """Schema for promotion evaluation LLM response"""
+
+    should_promote: bool = Field(..., description="Whether to promote")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
+    priority: int = Field(..., ge=1, le=10, description="Priority level 1-10")
+    reasoning: str = Field(..., description="Reasoning for decision")
 
 
 class PromotionService:
@@ -172,10 +240,13 @@ class PromotionService:
             # Step 7: Create new memory state
             previous_state = synthesis_context["latest_state"]
 
+            # CRITICAL: Don't pass parent_state_id explicitly
+            # Let create_memory_state auto-infer from Qdrant to avoid race conditions
+            # (PostgreSQL transaction isolation may cause previous_state to be stale)
             new_state = await self.memory_service.create_memory_state(
                 topic=request.topic,
                 content=synthesis_result["content"],
-                parent_state_id=previous_state.id if previous_state else None,
+                parent_state_id=None,  # Auto-infer from Qdrant (avoids transaction isolation issues)
                 metadata={
                     **request.metadata,
                     "promotion_trigger": request.trigger.value,
@@ -298,64 +369,6 @@ For each conflict, provide:
 
 Respond with a JSON array of conflicts."""
 
-        # Define JSON schema
-        schema = {
-            "name": "conflict_detection",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "conflicts": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "state_indices": {
-                                    "type": "array",
-                                    "items": {"type": "integer"},
-                                },
-                                "conflict_type": {
-                                    "type": "string",
-                                    "enum": [
-                                        "contradiction",
-                                        "inconsistency",
-                                        "ambiguity",
-                                        "temporal",
-                                    ],
-                                },
-                                "description": {"type": "string"},
-                                "severity": {
-                                    "type": "number",
-                                    "minimum": 0.0,
-                                    "maximum": 1.0,
-                                },
-                                "resolution_strategy": {
-                                    "type": "string",
-                                    "enum": [
-                                        "latest_wins",
-                                        "highest_confidence",
-                                        "merge",
-                                        "manual",
-                                        "llm_decide",
-                                    ],
-                                },
-                            },
-                            "required": [
-                                "state_indices",
-                                "conflict_type",
-                                "description",
-                                "severity",
-                                "resolution_strategy",
-                            ],
-                            "additionalProperties": False,
-                        },
-                    }
-                },
-                "required": ["conflicts"],
-                "additionalProperties": False,
-            },
-        }
-
         request = LLMRequest(
             system_prompt="You are a conflict detection assistant that identifies contradictions and inconsistencies in information.",
             user_message=prompt,
@@ -363,25 +376,27 @@ Respond with a JSON array of conflicts."""
             model=self.analysis_model,
             temperature=0.0,
             max_tokens=2000,
-            json_schema=schema,
+            json_schema=ConflictDetectionResponse.model_json_schema(),  # Pydantic schema (auto-formatted)
+            metadata={"schema_name": "conflict_detection"},
         )
 
         try:
             response = await self.llm_client.generate(request)
-            result = json.loads(response.content, strict=False)
+            # Parse and validate with Pydantic
+            validated = ConflictDetectionResponse.model_validate_json(response.content)
 
             conflicts = []
-            for c in result.get("conflicts", []):
+            for c in validated.conflicts:
                 # Convert indices to state IDs
-                state_ids = [sources[i - 1].id for i in c["state_indices"]]
+                state_ids = [sources[i - 1].id for i in c.state_indices]
 
                 conflicts.append(
                     Conflict(
                         state_ids=state_ids,
-                        conflict_type=ConflictType(c["conflict_type"]),
-                        description=c["description"],
-                        severity=c["severity"],
-                        resolution_strategy=ConflictResolutionStrategy(c["resolution_strategy"]),
+                        conflict_type=ConflictType(c.conflict_type),
+                        description=c.description,
+                        severity=c.severity,
+                        resolution_strategy=ConflictResolutionStrategy(c.resolution_strategy),
                     )
                 )
 
@@ -478,27 +493,7 @@ Provide a resolution that:
 
 Respond with JSON."""
 
-        schema = {
-            "name": "conflict_resolution",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "resolution": {"type": "string"},
-                    "winning_state_index": {"type": "integer", "nullable": True},
-                    "merged_content": {"type": "string", "nullable": True},
-                    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-                    "manual_review_needed": {"type": "boolean"},
-                },
-                "required": [
-                    "resolution",
-                    "confidence",
-                    "manual_review_needed",
-                ],
-                "additionalProperties": False,
-            },
-        }
-
+        # Generate JSON schema from Pydantic model
         request = LLMRequest(
             system_prompt="You are a conflict resolution assistant that resolves contradictions in information.",
             user_message=prompt,
@@ -506,27 +501,29 @@ Respond with JSON."""
             model=self.analysis_model,
             temperature=0.2,
             max_tokens=1000,
-            json_schema=schema,
+            json_schema=ConflictResolutionResponse.model_json_schema(),  # Pydantic schema (auto-formatted)
+            metadata={"schema_name": "conflict_resolution"},
         )
 
         try:
             response = await self.llm_client.generate(request)
-            result = json.loads(response.content, strict=False)
+            # Parse and validate with Pydantic
+            validated = ConflictResolutionResponse.model_validate_json(response.content)
 
             winning_state_id = None
-            if result.get("winning_state_index") is not None:
-                idx = result["winning_state_index"]
+            if validated.winning_state_index is not None:
+                idx = validated.winning_state_index
                 if 0 <= idx < len(states):
                     winning_state_id = states[idx].id
 
             return ConflictResolution(
                 conflict=conflict,
                 strategy_used=ConflictResolutionStrategy.LLM_DECIDE,
-                resolution=result["resolution"],
+                resolution=validated.resolution,
                 winning_state_id=winning_state_id,
-                merged_content=result.get("merged_content"),
-                confidence=result["confidence"],
-                manual_review_needed=result["manual_review_needed"],
+                merged_content=validated.merged_content,
+                confidence=validated.confidence,
+                manual_review_needed=validated.manual_review_needed,
             )
 
         except Exception as e:
@@ -652,21 +649,6 @@ Your task:
 
 DO NOT use nested structures or alternative field names. The response must be a flat JSON object with exactly these three fields at the top level."""
 
-        schema = {
-            "name": "content_synthesis",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "content": {"type": "string"},
-                    "reasoning": {"type": "string"},
-                    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-                },
-                "required": ["content", "reasoning", "confidence"],
-                "additionalProperties": False,
-            },
-        }
-
         # Calculate dynamic max_tokens
         input_length = len(prompt)
         input_tokens = input_length // 4
@@ -681,67 +663,32 @@ DO NOT use nested structures or alternative field names. The response must be a 
             model=self.synthesis_model,
             temperature=0.3,  # Slight creativity but mostly deterministic
             max_tokens=max_tokens,
-            json_schema=schema,
+            json_schema=ContentSynthesisResponse.model_json_schema(),  # Pydantic schema (auto-formatted)
+            metadata={"schema_name": "content_synthesis"},
         )
 
         response = None
         try:
             response = await self.llm_client.generate(request)
-            result = parse_llm_json(response.content, strict=False, fix_incomplete=True)
-            if result is None:
-                raise json.JSONDecodeError("Failed to parse JSON", response.content, 0)
+            # Parse and validate with Pydantic (handles schema validation automatically)
+            validated = ContentSynthesisResponse.model_validate_json(response.content)
 
-            # Handle different field names (LLM might use different names despite schema)
-            # Try both snake_case and camelCase variants, and nested structures
-
-            # Check if LLM returned nested structure
-            if "synthesized_memory_state" in result:
-                nested = result["synthesized_memory_state"]
-                # Convert the entire nested object to a JSON string as content
-                import json as json_module
-
-                content = json_module.dumps(nested, indent=2, ensure_ascii=False)
-                # Extract reasoning - check both result level and nested level
-                reasoning = result.get("synthesis_reasoning")
-                if reasoning is None:
-                    reasoning = nested.get("synthesis_reasoning", {})
-                if isinstance(reasoning, dict):
-                    # If reasoning is a dict, convert to string
-                    reasoning = json_module.dumps(reasoning, indent=2, ensure_ascii=False)
-                else:
-                    reasoning = str(reasoning) if reasoning else "No reasoning provided"
-                # Extract confidence - check result level first, then nested level
-                confidence = result.get("confidence_score") or result.get("confidence")
-                if confidence is None:
-                    confidence = nested.get("confidence_score") or nested.get("confidence")
-                if confidence is None:
-                    # Check in metadata if present
-                    metadata = nested.get("metadata", {})
-                    confidence = metadata.get("confidence_score") or metadata.get("confidence")
-            else:
-                # Flat structure (expected format)
-                content = (
-                    result.get("content")
-                    or result.get("synthesized_content")
-                    or result.get("synthesizedContent")
-                )
-                reasoning = result.get("reasoning")
-                confidence = (
-                    result.get("confidence")
-                    or result.get("confidence_score")
-                    or result.get("confidenceScore")
-                )
+            content = validated.content
+            reasoning = validated.reasoning
+            confidence = validated.confidence
 
             # Validate required fields
             if not content:
                 raise KeyError(
-                    f"LLM response missing 'content' or 'synthesized_content' field. Response: {result}"
+                    f"LLM response missing 'content' or 'synthesized_content' field. Response: {response.content}"
                 )
             if not reasoning:
-                raise KeyError(f"LLM response missing 'reasoning' field. Response: {result}")
+                raise KeyError(
+                    f"LLM response missing 'reasoning' field. Response: {response.content}"
+                )
             if confidence is None:
                 raise KeyError(
-                    f"LLM response missing 'confidence' or 'confidence_score' field. Response: {result}"
+                    f"LLM response missing 'confidence' or 'confidence_score' field. Response: {response.content}"
                 )
 
             return {
@@ -834,22 +781,6 @@ Provide:
 
 Respond with JSON."""
 
-        schema = {
-            "name": "hallucination_check",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "passed": {"type": "boolean"},
-                    "score": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-                    "unsupported_claims": {"type": "array", "items": {"type": "string"}},
-                    "recommendations": {"type": "array", "items": {"type": "string"}},
-                },
-                "required": ["passed", "score", "unsupported_claims", "recommendations"],
-                "additionalProperties": False,
-            },
-        }
-
         request = LLMRequest(
             system_prompt="You are a fact-checking assistant that detects hallucinations.",
             user_message=prompt,
@@ -857,18 +788,20 @@ Respond with JSON."""
             model=self.analysis_model,
             temperature=0.0,
             max_tokens=1000,
-            json_schema=schema,
+            json_schema=HallucinationCheckResponse.model_json_schema(),  # Pydantic schema (auto-formatted)
+            metadata={"schema_name": "hallucination_check"},
         )
 
         try:
             response = await self.llm_client.generate(request)
-            result = json.loads(response.content, strict=False)
+            # Parse and validate with Pydantic
+            validated = HallucinationCheckResponse.model_validate_json(response.content)
 
             # Be very lenient with hallucination detection
             # Only fail if score is critically low (<0.5) AND there are many unsupported claims (>5)
             # This allows for some flexibility in synthesis while catching major issues
-            score = result["score"]
-            unsupported_claims = result["unsupported_claims"]
+            score = validated.score
+            unsupported_claims = validated.unsupported_claims
             passed = score >= 0.5 or len(unsupported_claims) <= 5
 
             return QualityCheck(
@@ -876,7 +809,7 @@ Respond with JSON."""
                 passed=passed,  # More lenient - allow some minor hallucinations
                 score=score,
                 issues=unsupported_claims,
-                recommendations=result["recommendations"],
+                recommendations=validated.recommendations,
             )
         except Exception:
             # Default to passing if check fails
@@ -1190,22 +1123,6 @@ Provide:
 
 Respond with JSON."""
 
-        schema = {
-            "name": "promotion_evaluation",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "should_promote": {"type": "boolean"},
-                    "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-                    "priority": {"type": "integer", "minimum": 1, "maximum": 10},
-                    "reasoning": {"type": "string"},
-                },
-                "required": ["should_promote", "confidence", "priority", "reasoning"],
-                "additionalProperties": False,
-            },
-        }
-
         # Use policy's model or fall back to settings
         model = self.policy.evaluation_model or settings.evaluation_model
 
@@ -1216,20 +1133,22 @@ Respond with JSON."""
             model=model,
             temperature=0.2,
             max_tokens=500,
-            json_schema=schema,
+            json_schema=PromotionEvaluationResponse.model_json_schema(),  # Pydantic schema (auto-formatted)
+            metadata={"schema_name": "promotion_evaluation"},
         )
 
         try:
             response = await self.llm_client.generate(request)
-            result = json.loads(response.content, strict=False)
+            # Parse and validate with Pydantic
+            validated = PromotionEvaluationResponse.model_validate_json(response.content)
 
             return PromotionEvaluation(
                 topic=topic,
-                should_promote=result["should_promote"],
-                confidence=result["confidence"],
-                priority=result["priority"],
+                should_promote=validated.should_promote,
+                confidence=validated.confidence,
+                priority=validated.priority,
                 trigger=trigger,
-                reasoning=result["reasoning"],
+                reasoning=validated.reasoning,
                 metrics=metrics or {},
             )
 

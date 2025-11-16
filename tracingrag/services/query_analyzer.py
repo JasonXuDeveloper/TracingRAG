@@ -3,9 +3,29 @@
 import json
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from tracingrag.config import settings
 from tracingrag.core.models.rag import ConsolidationLevel, QueryType
 from tracingrag.services.llm import LLMClient, get_llm_client
+
+
+class QueryAnalysisSchema(BaseModel):
+    """Pydantic schema for query analysis structured output"""
+
+    query_type: QueryType = Field(..., description="Type of query")
+    consolidation_level: ConsolidationLevel = Field(
+        ..., description="Consolidation level (0=RAW, 1=DAILY, 2=WEEKLY, 3=MONTHLY)"
+    )
+    needs_history: bool = Field(..., description="Whether historical context is needed")
+    needs_graph: bool = Field(..., description="Whether graph relationships are needed")
+    time_scope: str = Field(
+        ...,
+        description="Time scope of the query",
+        pattern="^(current|recent|historical|all)$",
+    )
+    entities: list[str] = Field(default_factory=list, description="Extracted entities from query")
+    reasoning: str = Field(..., description="Brief explanation of classification")
 
 
 class QueryAnalyzer:
@@ -68,69 +88,6 @@ class QueryAnalyzer:
         # Create LLM request for structured output
         from tracingrag.core.models.rag import LLMRequest
 
-        # Define JSON schema for query analysis
-        json_schema = {
-            "name": "query_analysis",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "query_type": {
-                        "type": "string",
-                        "enum": [
-                            "status",
-                            "recent",
-                            "overview",
-                            "why",
-                            "how",
-                            "what",
-                            "when",
-                            "comparison",
-                            "general",
-                        ],
-                        "description": "Type of query",
-                    },
-                    "consolidation_level": {
-                        "type": "integer",
-                        "enum": [0, 1, 2, 3],
-                        "description": "Consolidation level (0=RAW, 1=DAILY, 2=WEEKLY, 3=MONTHLY)",
-                    },
-                    "needs_history": {
-                        "type": "boolean",
-                        "description": "Whether historical context is needed",
-                    },
-                    "needs_graph": {
-                        "type": "boolean",
-                        "description": "Whether graph relationships are needed",
-                    },
-                    "time_scope": {
-                        "type": "string",
-                        "enum": ["current", "recent", "historical", "all"],
-                        "description": "Time scope of the query",
-                    },
-                    "entities": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Extracted entities from query",
-                    },
-                    "reasoning": {
-                        "type": "string",
-                        "description": "Brief explanation of classification",
-                    },
-                },
-                "required": [
-                    "query_type",
-                    "consolidation_level",
-                    "needs_history",
-                    "needs_graph",
-                    "time_scope",
-                    "entities",
-                    "reasoning",
-                ],
-                "additionalProperties": False,
-            },
-        }
-
         request = LLMRequest(
             system_prompt=self._get_analysis_system_prompt(),
             user_message=analysis_prompt,
@@ -138,32 +95,34 @@ class QueryAnalyzer:
             model=self.default_model,  # Use configurable model (cheap/free recommended)
             temperature=0.0,  # Deterministic for classification
             max_tokens=4000,  # Generous limit to prevent truncation while keeping costs reasonable
-            json_schema=json_schema,  # Use JSON schema for strict structured output
-            metadata={"task": "query_analysis"},
+            json_schema=QueryAnalysisSchema.model_json_schema(),  # Pydantic schema (auto-formatted by LLM client)
+            metadata={"task": "query_analysis", "schema_name": "query_analysis"},
         )
 
         # Get response
         response = await self.llm_client.generate(request)
 
-        # Parse structured JSON response
+        # Parse and validate structured JSON response using Pydantic
         try:
-            analysis = json.loads(response.content)
-
-            # Convert string values to enums
-            query_type = QueryType(analysis.get("query_type", "general"))
-            consolidation_level = ConsolidationLevel(analysis.get("consolidation_level", 2))
+            # Parse JSON and validate with Pydantic (enums are auto-converted)
+            analysis_data = json.loads(response.content)
+            validated = QueryAnalysisSchema.model_validate(analysis_data)
 
             return {
-                "query_type": query_type,
-                "consolidation_level": consolidation_level,
-                "needs_history": analysis.get("needs_history", False),
-                "needs_graph": analysis.get("needs_graph", True),
-                "time_scope": analysis.get("time_scope", "current"),
-                "entities": analysis.get("entities", []),
-                "reasoning": analysis.get("reasoning", ""),
+                "query_type": validated.query_type,  # Already QueryType enum
+                "consolidation_level": validated.consolidation_level,  # Already ConsolidationLevel enum
+                "needs_history": validated.needs_history,
+                "needs_graph": validated.needs_graph,
+                "time_scope": validated.time_scope,
+                "entities": validated.entities,
+                "reasoning": validated.reasoning,
             }
-        except (json.JSONDecodeError, KeyError, ValueError):
+        except (json.JSONDecodeError, KeyError, ValueError, Exception) as e:
             # Fallback to rule-based if LLM response is invalid
+            from tracingrag.utils.logger import get_logger
+
+            logger = get_logger(__name__)
+            logger.warning(f"Query analysis LLM parsing failed: {e}. Falling back to rules.")
             return self._analyze_with_rules(query)
 
     def _build_analysis_prompt(self, query: str) -> str:

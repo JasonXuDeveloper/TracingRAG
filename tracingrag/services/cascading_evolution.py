@@ -10,6 +10,8 @@ This module handles cascading updates when a new memory is created:
 
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel, Field
+
 from tracingrag.config import settings
 from tracingrag.core.models.rag import LLMRequest
 from tracingrag.services.llm import get_llm_client
@@ -18,6 +20,29 @@ from tracingrag.utils.json_utils import parse_llm_json
 from tracingrag.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+class EvolutionDecision(BaseModel):
+    """Pydantic schema for evolution decision structured output"""
+
+    index: int = Field(..., description="1-based index of the candidate topic")
+    topic: str = Field(..., description="Topic name")
+    should_evolve: bool = Field(..., description="Whether this topic should evolve")
+    reasoning: str = Field(..., max_length=80, description="Brief reason for decision")
+    evolved_content: str = Field(
+        "",
+        description="New evolved content if should_evolve is True (empty string if not evolving)",
+    )
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
+
+
+class EvolutionAnalysisResponse(BaseModel):
+    """Schema for evolution analysis LLM response (wraps array for OpenAI compatibility)"""
+
+    decisions: list[EvolutionDecision] = Field(
+        default_factory=list, description="List of evolution decisions"
+    )
+
 
 if TYPE_CHECKING:
     pass
@@ -39,26 +64,31 @@ class CascadingEvolutionManager:
         Strategy:
         1. Find semantically related states (latest versions only)
         2. LLM decides which topics should evolve
-        3. Concurrently evolve selected topics
-        4. Relationship propagation handled by RelationshipManager
+        3. Concurrently create cascade states (NO relationship processing)
+        4. Return created states for batch relationship processing by caller
 
         Args:
             new_state: The newly created memory state
             similarity_threshold: Minimum similarity for candidates (higher = more selective)
 
         Returns:
-            Dict with evolution statistics
+            Dict with:
+            - "created_states": List of MemoryStateDB objects created by cascade
+            - "statistics": Evolution statistics
         """
         import asyncio
 
         from tracingrag.services.memory import MemoryService
         from tracingrag.services.retrieval import RetrievalService
 
-        # Statistics
-        stats = {
-            "evolved_topics": [],
-            "skipped_topics": [],
-            "total_candidates": 0,
+        # Result structure
+        result = {
+            "created_states": [],  # List of MemoryStateDB objects
+            "statistics": {
+                "evolved_topics": [],
+                "skipped_topics": [],
+                "total_candidates": 0,
+            },
         }
 
         memory_service = MemoryService()
@@ -83,19 +113,20 @@ class CascadingEvolutionManager:
 
         # Filter out self
         candidate_topics = [
-            result
-            for result in similar_states
-            if result.state.id != new_state.id and result.state.topic != new_state.topic
+            search_result
+            for search_result in similar_states
+            if search_result.state.id != new_state.id
+            and search_result.state.topic != new_state.topic
         ]
 
-        stats["total_candidates"] = len(candidate_topics)
+        result["statistics"]["total_candidates"] = len(candidate_topics)
 
         logger.info(f"   Found {len(similar_states)} similar states")
         logger.info(f"   After filtering: {len(candidate_topics)} unique topics")
 
         if not candidate_topics:
             logger.info(f"   No candidates for {new_state.topic}")
-            return stats
+            return result
 
         # Step 2: LLM decides which topics should evolve (parallel batch processing)
         # Split into batches to avoid token limits
@@ -125,55 +156,63 @@ class CascadingEvolutionManager:
 
         # Collect results, filtering out exceptions
         all_decisions = []
-        for i, result in enumerate(batch_results):
-            if isinstance(result, Exception):
-                logger.error(f"   ✗ Batch {i+1}/{len(batches)} failed: {result}")
+        for i, batch_result in enumerate(batch_results):
+            if isinstance(batch_result, Exception):
+                logger.error(f"   ✗ Batch {i+1}/{len(batches)} failed: {batch_result}")
             else:
-                logger.info(f"   ✓ Batch {i+1}/{len(batches)}: {len(result)} decisions")
-                all_decisions.extend(result)
+                logger.info(f"   ✓ Batch {i+1}/{len(batches)}: {len(batch_result)} decisions")
+                all_decisions.extend(batch_result)
 
         evolution_decisions = all_decisions
 
-        # Step 3: Concurrently evolve selected topics
-        async def evolve_topic(decision: dict[str, Any]) -> dict[str, Any] | None:
-            """Helper to evolve a single topic"""
+        # Deduplicate decisions by topic (keep first decision for each topic)
+        seen_topics = set()
+        unique_decisions = []
+        for decision in evolution_decisions:
+            topic = decision.get("topic")
+            if topic and topic not in seen_topics:
+                seen_topics.add(topic)
+                unique_decisions.append(decision)
+            elif topic in seen_topics:
+                logger.warning(f"   ⚠️ Duplicate decision for {topic}, keeping first decision only")
+
+        evolution_decisions = unique_decisions
+        logger.info(f"   After deduplication: {len(evolution_decisions)} unique topics to evolve")
+
+        # Step 3: Concurrently create cascade states (NO relationship processing)
+        async def evolve_topic(
+            decision: dict[str, Any],
+        ) -> tuple[MemoryStateDB | None, dict[str, Any]]:
+            """Helper to create a cascade state
+
+            Returns:
+                Tuple of (created_state_or_None, evolution_info)
+            """
             topic = decision["topic"]
 
             if not decision["should_evolve"]:
                 logger.info(f"   ⊘ Skipping {topic}: {decision['reasoning']}")
-                return {
+                return None, {
                     "skipped": True,
                     "topic": topic,
                     "reason": decision["reasoning"],
                 }
 
             try:
-                # Temporarily reduce RelationshipManager log level during cascade
-                import logging
-
-                from tracingrag.services.relationship_manager import logger as rel_logger
-
-                old_level = rel_logger.level
-                rel_logger.setLevel(logging.WARNING)  # Only show warnings/errors
-
-                try:
-                    # Evolve this topic
-                    evolved_state = await memory_service.create_memory_state(
-                        topic=topic,
-                        content=decision["evolved_content"],
-                        parent_state_id=decision["current_state_id"],
-                        metadata={
-                            "cascading_evolution": True,
-                            "triggered_by_topic": new_state.topic,
-                            "triggered_by_state_id": str(new_state.id),
-                            "evolution_reason": decision["reasoning"],
-                        },
-                        tags=[*decision.get("current_tags", []), "cascading_evolved"],
-                        confidence=decision.get("confidence", 0.8),
-                    )
-                finally:
-                    # Restore original log level
-                    rel_logger.setLevel(old_level)
+                # Create cascade state using _create_state_only (NO cascade/promote/relationship processing)
+                evolved_state = await memory_service._create_state_only(
+                    topic=topic,
+                    content=decision["evolved_content"],
+                    parent_state_id=decision["current_state_id"],
+                    metadata={
+                        "cascading_evolution": True,
+                        "triggered_by_topic": new_state.topic,
+                        "triggered_by_state_id": str(new_state.id),
+                        "evolution_reason": decision["reasoning"],
+                    },
+                    tags=[*decision.get("current_tags", []), "cascading_evolved"],
+                    confidence=decision.get("confidence", 0.8),
+                )
 
                 evolution_info = {
                     "skipped": False,
@@ -185,55 +224,65 @@ class CascadingEvolutionManager:
                 }
 
                 logger.info(
-                    f"   ✓ Evolved: {topic} v{decision['current_version']} → v{evolved_state.version}"
+                    f"   ✓ Created cascade state: {topic} v{decision['current_version']} → v{evolved_state.version}"
                 )
-                return evolution_info
+                return evolved_state, evolution_info
 
             except Exception as e:
-                logger.error(f"   ✗ Failed to evolve {topic}: {e}")
-                return {
+                logger.error(f"   ✗ Failed to create cascade state for {topic}: {e}")
+                return None, {
                     "skipped": True,
                     "topic": topic,
-                    "reason": f"Evolution failed: {str(e)}",
+                    "reason": f"Creation failed: {str(e)}",
                 }
 
-        # Execute all evolutions concurrently
-        logger.info(f"   Executing {len(evolution_decisions)} evolutions concurrently...")
+        # Execute all cascade state creations concurrently
+        logger.info(f"   Creating {len(evolution_decisions)} cascade states concurrently...")
         results = await asyncio.gather(
             *[evolve_topic(decision) for decision in evolution_decisions]
         )
 
-        # Collect results
-        for result in results:
-            if result:
-                if result.get("skipped"):
-                    stats["skipped_topics"].append(
-                        {
-                            "topic": result["topic"],
-                            "reason": result["reason"],
-                        }
-                    )
-                else:
-                    stats["evolved_topics"].append(
-                        {
-                            "topic": result["topic"],
-                            "old_version": result["old_version"],
-                            "new_version": result["new_version"],
-                            "new_state_id": result["new_state_id"],
-                            "reasoning": result["reasoning"],
-                        }
-                    )
+        # Collect created states and statistics
+        for state, info in results:
+            # Validate info is dict
+            if not isinstance(info, dict):
+                logger.error(f"Invalid info type: {type(info)}, expected dict. Skipping.")
+                continue
+
+            if state:
+                # Add to created_states list
+                result["created_states"].append(state)
+                # Add to evolved_topics statistics
+                result["statistics"]["evolved_topics"].append(
+                    {
+                        "topic": info.get("topic", "unknown"),
+                        "old_version": info.get("old_version", 0),
+                        "new_version": info.get("new_version", 0),
+                        "new_state_id": info.get("new_state_id", ""),
+                        "reasoning": info.get("reasoning", ""),
+                    }
+                )
+            elif info.get("skipped"):
+                # Add to skipped_topics statistics
+                result["statistics"]["skipped_topics"].append(
+                    {
+                        "topic": info.get("topic", "unknown"),
+                        "reason": info.get("reason", ""),
+                    }
+                )
 
         # Final summary
+        stats = result["statistics"]
         logger.info(f"\n{'='*70}")
-        logger.info("🎉 Single-level Cascading Evolution Complete!")
+        logger.info("🎉 Cascade States Creation Complete!")
         logger.info(f"{'='*70}")
         logger.info(f"   Total Candidates: {stats['total_candidates']}")
-        logger.info(f"   Total Evolved: {len(stats['evolved_topics'])}")
+        logger.info(f"   Total Created: {len(result['created_states'])}")
         logger.info(f"   Total Skipped: {len(stats['skipped_topics'])}")
+        logger.info("   (Relationship processing deferred to caller)")
         logger.info(f"{'='*70}\n")
 
-        return stats
+        return result
 
     async def _llm_evolution_analysis(
         self,
@@ -257,10 +306,10 @@ class CascadingEvolutionManager:
         )
 
         candidate_desc = []
-        for idx, result in enumerate(candidate_topics):
+        for idx, candidate in enumerate(candidate_topics):
             candidate_desc.append(
-                f"T{idx + 1}. {result.state.topic} v{result.state.version} (similarity: {result.score:.2f})\n"
-                f"    Current content: {result.state.content}"
+                f"T{idx + 1}. {candidate.state.topic} v{candidate.state.version} (similarity: {candidate.score:.2f})\n"
+                f"    Current content: {candidate.state.content}"
             )
 
         candidates_text = "\n\n".join(candidate_desc)
@@ -318,38 +367,10 @@ Respond with ONLY the JSON array below, NO additional text or explanations:
 
 [
   {{"index": 1, "topic": "Topic Name", "should_evolve": true, "reasoning": "brief reason", "evolved_content": "full content here", "confidence": 0.9}},
-  {{"index": 2, "topic": "Another Topic", "should_evolve": false, "reasoning": "not relevant", "evolved_content": null, "confidence": 0.3}},
+  {{"index": 2, "topic": "Another Topic", "should_evolve": false, "reasoning": "not relevant", "evolved_content": "", "confidence": 0.3}},
   ...
 ]
 """
-
-        schema = {
-            "name": "evolution_analysis",
-            "strict": True,
-            "schema": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "index": {"type": "integer"},
-                        "topic": {"type": "string"},
-                        "should_evolve": {"type": "boolean"},
-                        "reasoning": {"type": "string", "maxLength": 80},
-                        "evolved_content": {"anyOf": [{"type": "string"}, {"type": "null"}]},
-                        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-                    },
-                    "required": [
-                        "index",
-                        "topic",
-                        "should_evolve",
-                        "reasoning",
-                        "evolved_content",
-                        "confidence",
-                    ],
-                    "additionalProperties": False,
-                },
-            },
-        }
 
         # Adjust max_tokens based on batch size
         # Since we now preserve all existing content + add new info, evolved_content can be longer
@@ -373,7 +394,8 @@ CRITICAL RULES:
             model=settings.analysis_model,
             temperature=0.3,
             max_tokens=max_tokens,
-            json_schema=schema,
+            json_schema=EvolutionAnalysisResponse.model_json_schema(),  # Pydantic schema (auto-formatted)
+            metadata={"schema_name": "evolution_analysis"},
         )
 
         try:
@@ -384,52 +406,77 @@ CRITICAL RULES:
                 logger.error("Empty LLM response for cascading evolution")
                 return []
 
-            # Parse JSON with automatic cleaning and error recovery
-            # Schema expects array directly
-            result = parse_llm_json(response.content, strict=False, fix_incomplete=True)
-            if result is None:
-                logger.error("Failed to parse cascading evolution JSON")
-                return []
+            # Parse and validate with Pydantic
+            try:
+                validated = EvolutionAnalysisResponse.model_validate_json(response.content)
+                decisions_list = validated.decisions
+            except Exception as e:
+                logger.error(f"Failed to validate cascading evolution response with Pydantic: {e}")
+                # Fallback to manual parsing
+                result = parse_llm_json(response.content, strict=False, fix_incomplete=True)
+                if result is None:
+                    logger.error("Failed to parse cascading evolution JSON")
+                    return []
 
-            # Handle both array (correct) and object with "decisions" key (LLM mistake)
-            if isinstance(result, list):
-                decisions_list = result
-            elif isinstance(result, dict) and "decisions" in result:
-                logger.debug("LLM returned object instead of array, extracting 'decisions' field")
-                decisions_list = result["decisions"]
-            else:
-                logger.error(
-                    f"Expected array but got {type(result)}, response: {response.content[:500]}"
-                )
-                return []
+                # Handle both array (legacy) and object with "decisions" key (current)
+                if isinstance(result, list):
+                    decisions_list = result
+                elif isinstance(result, dict) and "decisions" in result:
+                    decisions_list = result["decisions"]
+                else:
+                    logger.error(
+                        f"Expected array or object with 'decisions' but got {type(result)}, response: {response.content[:500]}"
+                    )
+                    return []
 
             decisions = []
+            seen_indices = set()  # Track used indices to detect LLM duplicates
+
             for decision in decisions_list:
-                # Use .get() for all fields since LLM may return incomplete objects
-                idx = decision.get("index", 0) - 1
+                # Handle both Pydantic objects and dicts
+                if isinstance(decision, EvolutionDecision):
+                    # Pydantic object (preferred)
+                    idx = decision.index - 1
+                    should_evolve_val = decision.should_evolve
+                    reasoning_val = decision.reasoning
+                    evolved_content_val = decision.evolved_content
+                    confidence_val = decision.confidence
+                else:
+                    # Fallback for dict (manual parsing)
+                    idx = decision.get("index", 0) - 1
+                    should_evolve_val = decision.get("should_evolve", False)
+                    reasoning_val = decision.get("reasoning", "No reasoning provided")
+                    evolved_content_val = decision.get("evolved_content", "")
+                    confidence_val = decision.get("confidence", 0.5)
+
+                # Check for duplicate index (LLM error)
+                if idx in seen_indices:
+                    logger.warning(f"Warning: Duplicate index {idx + 1} in LLM response, skipping")
+                    continue
+
                 if idx < 0 or idx >= len(candidate_topics):
                     logger.warning(f"Warning: Invalid index {idx + 1}, skipping")
                     continue
 
+                seen_indices.add(idx)
                 candidate = candidate_topics[idx]
 
                 # Validate required fields
-                if decision.get("should_evolve") is None:
+                if should_evolve_val is None:
                     logger.warning("Warning: Missing required fields in decision, skipping")
-                    logger.info(f"   Decision: {decision}")
                     continue
 
                 # IMPORTANT: Always use the candidate's actual topic name, not LLM's returned topic
                 # LLM might include version numbers (e.g., "Lisa Wong v2" instead of "Lisa Wong")
                 decision_dict = {
                     "topic": candidate.state.topic,  # Use actual topic from candidate
-                    "should_evolve": decision.get("should_evolve", False),
-                    "reasoning": decision.get("reasoning", "No reasoning provided"),
-                    "confidence": decision.get("confidence", 0.5),  # Default confidence
+                    "should_evolve": should_evolve_val,
+                    "reasoning": reasoning_val,
+                    "confidence": confidence_val,
                     "current_state_id": candidate.state.id,
                     "current_version": candidate.state.version,
                     "current_tags": candidate.state.tags,
-                    "evolved_content": decision.get("evolved_content", None),
+                    "evolved_content": evolved_content_val,
                 }
 
                 decisions.append(decision_dict)
@@ -441,16 +488,16 @@ CRITICAL RULES:
             # Fallback: don't evolve anything
             return [
                 {
-                    "topic": result.state.topic,
+                    "topic": candidate.state.topic,
                     "should_evolve": False,
                     "reasoning": f"LLM analysis failed: {str(e)}",
                     "confidence": 0.0,
-                    "current_state_id": result.state.id,
-                    "current_version": result.state.version,
-                    "current_tags": result.state.tags,
-                    "evolved_content": None,
+                    "current_state_id": candidate.state.id,
+                    "current_version": candidate.state.version,
+                    "current_tags": candidate.state.tags,
+                    "evolved_content": "",
                 }
-                for result in candidate_topics
+                for candidate in candidate_topics
             ]
 
 

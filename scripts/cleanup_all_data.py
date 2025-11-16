@@ -1,4 +1,4 @@
-"""Cleanup script to list and delete all memory states"""
+"""Cleanup script to delete all TracingRAG data (optimized to use bulk API)"""
 
 import asyncio
 import sys
@@ -7,72 +7,75 @@ from tracingrag.client import AsyncTracingRAGClient
 
 
 async def main():
-    """List and delete all memory states"""
+    """Delete all TracingRAG data from all storage layers"""
     client = AsyncTracingRAGClient("http://localhost:8000")
 
     # Check if --force flag is provided
     force_delete = "--force" in sys.argv or "-f" in sys.argv
 
     print("=" * 70)
-    print("📋 Listing all memory states...")
+    print("⚠️  WARNING: TracingRAG Data Cleanup Utility")
     print("=" * 70)
-
-    # Get all memories
-    memories = await client.list_memories(limit=1000)
-    print(f"\nFound {len(memories)} memory states:\n")
-
-    # Group by topic
-    topics = {}
-    for memory in memories:
-        if memory.topic not in topics:
-            topics[memory.topic] = []
-        topics[memory.topic].append(memory)
-
-    # Display grouped by topic
-    for topic, states in sorted(topics.items()):
-        print(f"📌 {topic}: {len(states)} version(s)")
-        for state in sorted(states, key=lambda s: s.version):
-            print(
-                f"   v{state.version} - {state.id} - {state.timestamp.strftime('%Y-%m-%d %H:%M')}"
-            )
-            print(f"      {state.content[:80]}...")
-
-    if not memories:
-        print("✅ Database is already empty!")
-        return
-
-    # Confirm deletion
-    print("\n" + "=" * 70)
-    print("⚠️  WARNING: About to delete ALL memory states!")
-    print("=" * 70)
+    print()
+    print("This will permanently DELETE ALL TracingRAG data from:")
+    print("  • PostgreSQL (MemoryStateDB, TraceDB tables)")
+    print("  • Qdrant (memory_states collection)")
+    print("  • Neo4j (MemoryState nodes and relationships)")
+    print("  • Redis (TracingRAG cache keys)")
+    print()
 
     if not force_delete:
-        response = input(f"\nDelete all {len(memories)} memories? (yes/no): ")
-        if response.lower() != "yes":
-            print("❌ Deletion cancelled.")
+        confirm = input("Type 'DELETE_ALL_DATA' to confirm: ")
+        if confirm != "DELETE_ALL_DATA":
+            print("❌ Cleanup cancelled.")
             return
     else:
-        print(f"\n🚀 Force mode: Deleting all {len(memories)} memories...")
+        print("🚀 Force mode: Proceeding with cleanup...")
 
-    # Delete all memories
-    print("\n🗑️  Deleting all memories...")
-    deleted_count = 0
-    failed_count = 0
+    # Call optimized bulk cleanup API
+    print("\n🗑️  Deleting all data...")
+    try:
+        result = await client.cleanup_all()
 
-    for memory in memories:
-        try:
-            await client.delete_memory(memory.id)
-            deleted_count += 1
-            print(f"   ✓ Deleted {memory.topic} v{memory.version} ({memory.id})")
-        except Exception as e:
-            failed_count += 1
-            print(f"   ✗ Failed to delete {memory.topic} v{memory.version}: {e}")
+        if result.get("success"):
+            stats = result.get("statistics", {})
 
-    print("\n" + "=" * 70)
-    print("✅ Cleanup complete!")
-    print(f"   Deleted: {deleted_count}")
-    print(f"   Failed:  {failed_count}")
-    print("=" * 70)
+            print("\n" + "=" * 70)
+            print("✅ Cleanup Complete!")
+            print("=" * 70)
+
+            # PostgreSQL stats
+            pg_stats = stats.get("postgresql", {})
+            print("PostgreSQL:")
+            print(f"  ✓ Deleted {pg_stats.get('memories', 0)} memories")
+            print(f"  ✓ Deleted {pg_stats.get('traces', 0)} traces")
+            print(f"  ✓ Deleted {pg_stats.get('topic_latest_states', 0)} topic latest states")
+
+            # Qdrant stats
+            qdrant_stats = stats.get("qdrant", {})
+            print("Qdrant:")
+            print(f"  ✓ Deleted {qdrant_stats.get('points', 0)} vector points")
+
+            # Neo4j stats
+            neo4j_stats = stats.get("neo4j", {})
+            print("Neo4j:")
+            print(f"  ✓ Deleted {neo4j_stats.get('nodes', 0)} nodes")
+            print(f"  ✓ Deleted {neo4j_stats.get('relationships', 0)} relationships")
+
+            # Redis stats
+            redis_stats = stats.get("redis", {})
+            print("Redis:")
+            print(f"  ✓ Deleted {redis_stats.get('keys', 0)} cache keys")
+
+            print("=" * 70)
+        else:
+            print(f"❌ Cleanup failed: {result.get('message', 'Unknown error')}")
+
+    except Exception as e:
+        print(f"\n❌ Error during cleanup: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

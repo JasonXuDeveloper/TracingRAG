@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from tracingrag.types import Citation, MemoryStateResponse
+
 # ============================================================================
 # Memory API Schemas
 # ============================================================================
@@ -21,23 +23,6 @@ class CreateMemoryRequest(BaseModel):
     tags: list[str] = Field(default_factory=list, description="List of tags")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence score")
     source: str | None = Field(default=None, description="Source of the memory")
-
-
-class MemoryStateResponse(BaseModel):
-    """Response containing a memory state"""
-
-    model_config = {"from_attributes": True}
-
-    id: UUID
-    topic: str
-    content: str
-    version: int
-    timestamp: datetime
-    parent_state_id: UUID | None
-    metadata: dict[str, Any]
-    tags: list[str]
-    confidence: float
-    source: str | None
 
 
 class MemoryListResponse(BaseModel):
@@ -62,7 +47,18 @@ class QueryRequest(BaseModel):
     include_related: bool = Field(default=True, description="Include related states")
     depth: int = Field(default=2, ge=1, le=5, description="Graph traversal depth")
     limit: int = Field(default=10, ge=1, le=100, description="Max results to retrieve")
-    use_agent: bool = Field(default=False, description="Use agent-based retrieval")
+    max_rounds: int = Field(
+        default=5,
+        ge=0,
+        le=10,
+        description="Maximum rounds for iterative agent. Set to 0 to use simple RAG mode (no agent). Default: 5 (agent mode)",
+    )
+    max_tokens_per_round: int = Field(
+        default=20000,
+        ge=5000,
+        le=50000,
+        description="Max tokens per round for agent mode (ignored if max_rounds=0)",
+    )
 
 
 class QueryResponse(BaseModel):
@@ -73,6 +69,13 @@ class QueryResponse(BaseModel):
     answer: str = Field(..., description="Generated answer")
     sources: list[MemoryStateResponse] = Field(default_factory=list, description="Source memories")
     confidence: float = Field(..., description="Confidence in answer")
+    key_findings: list[str] = Field(default_factory=list, description="Key findings from analysis")
+    citations: list[Citation] = Field(
+        default_factory=list, description="Citations referencing sources"
+    )
+    uncertainties: list[str] = Field(
+        default_factory=list, description="Uncertainties or information gaps"
+    )
     reasoning: str | None = Field(default=None, description="Reasoning for answer")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 

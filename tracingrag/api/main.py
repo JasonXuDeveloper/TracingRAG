@@ -452,6 +452,46 @@ async def delete_memory(memory_id: str):
         )
 
 
+@app.delete("/api/v1/memories", tags=["Memory"])
+async def cleanup_all_memories(confirm: str | None = None):
+    """Delete ALL TracingRAG data from all storage layers
+
+    WARNING: This will permanently delete ALL data!
+    - PostgreSQL: MemoryStateDB and TraceDB tables
+    - Qdrant: memory_states collection
+    - Neo4j: MemoryState nodes and relationships
+    - Redis: TracingRAG cache keys
+
+    Args:
+        confirm: Must be "DELETE_ALL_DATA" to proceed
+
+    Returns:
+        Statistics about deleted data
+    """
+    # Safety check: require explicit confirmation
+    if confirm != "DELETE_ALL_DATA":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Must provide confirmation: confirm="DELETE_ALL_DATA"',
+        )
+
+    try:
+        stats = await memory_service.cleanup_all_data()
+
+        return {
+            "success": True,
+            "message": "All TracingRAG data deleted successfully",
+            "statistics": stats,
+        }
+
+    except Exception as e:
+        logger.error(f"Cleanup failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cleanup data: {str(e)}",
+        )
+
+
 # ============================================================================
 # Query/RAG Endpoints
 # ============================================================================
@@ -459,37 +499,71 @@ async def delete_memory(memory_id: str):
 
 @app.post("/api/v1/query", response_model=QueryResponse, tags=["Query"])
 async def query_rag(request: QueryRequest):
-    """Query the RAG system"""
+    """Query the RAG system
+
+    Uses iterative agent mode by default (max_rounds=5).
+    Set max_rounds=0 to use simple RAG mode without agent.
+    """
     try:
-        if request.use_agent:
-            # Use agent-based retrieval
-            result = await agent_service.query_with_agent(query=request.query)
+        if request.max_rounds > 0:
+            # Use iterative agent (multi-round with topic history)
+            result = await agent_service.query(
+                query=request.query,
+                max_rounds=request.max_rounds,
+                max_tokens_per_round=request.max_tokens_per_round,
+            )
 
             # Fetch memory states from source IDs
             sources = []
-            for source_id in result.sources:
+            for source_id in result.source_ids:
                 memory_state = await memory_service.get_memory_state(source_id)
                 if memory_state:
                     sources.append(memory_db_to_response(memory_state))
 
-            # Generate reasoning summary from steps
+            # Generate user-friendly reasoning summary
             reasoning = None
-            if result.reasoning_steps:
-                step_summaries = [
-                    f"{step.action.value}: {step.result or 'executed'}"
-                    for step in result.reasoning_steps
-                ]
-                reasoning = " → ".join(step_summaries)
+            if result.rounds:
+                total_rounds = len(result.rounds)
+                total_states = result.metadata.get("total_states_used", len(result.source_ids))
+                final_confidence = result.confidence
+
+                if total_rounds == 1:
+                    reasoning = (
+                        f"Retrieved {total_states} relevant documents in 1 round "
+                        f"(confidence: {final_confidence:.0%})"
+                    )
+                else:
+                    # Multi-round: show progression
+                    topics_explored = []
+                    for r in result.rounds:
+                        if r.get("needed_topics"):
+                            topics_explored.extend(r["needed_topics"])
+
+                    if topics_explored:
+                        unique_topics = list(set(topics_explored))
+                        reasoning = (
+                            f"Analyzed across {total_rounds} rounds, exploring topics: "
+                            f"{', '.join(unique_topics[:3])}{'...' if len(unique_topics) > 3 else ''} "
+                            f"({total_states} documents, confidence: {final_confidence:.0%})"
+                        )
+                    else:
+                        reasoning = (
+                            f"Analyzed across {total_rounds} rounds "
+                            f"({total_states} documents, confidence: {final_confidence:.0%})"
+                        )
 
             return QueryResponse(
                 answer=result.answer,
                 sources=sources,
                 confidence=result.confidence,
+                key_findings=result.key_findings,
+                citations=result.citations,
+                uncertainties=result.uncertainties,
                 reasoning=reasoning,
-                metadata=result.metadata,
+                metadata=serialize_for_json(result.metadata),
             )
         else:
-            # Use parallel iterative RAG (MapReduce-style divide-and-conquer processing)
+            # Simple RAG mode (no agent, direct retrieval)
             result = await rag_service.query_iterative_parallel(query=request.query)
 
             # Fetch memory states from source IDs

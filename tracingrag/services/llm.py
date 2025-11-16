@@ -14,6 +14,148 @@ from tracingrag.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _add_additional_properties_false(schema: dict) -> dict:
+    """
+    Recursively add 'additionalProperties: false' and ensure all properties are required
+
+    OpenAI strict mode requires:
+    1. additionalProperties: false for all object types (including nested)
+    2. All properties must be in the 'required' array (no optional fields)
+    3. $ref cannot have sibling keywords (like 'description', 'title', etc.)
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    # Make a copy to avoid modifying the original
+    result = schema.copy()
+
+    # If this schema has a $ref, remove all other keywords (OpenAI strict mode requirement)
+    if "$ref" in result:
+        # Keep only $ref, remove everything else (description, title, etc.)
+        return {"$ref": result["$ref"]}
+
+    # Remove type: None if present (invalid for OpenAI)
+    if "type" in result and result["type"] is None:
+        del result["type"]
+
+    # If this is an object type, ensure additionalProperties is false
+    if result.get("type") == "object":
+        result["additionalProperties"] = False
+
+        # OpenAI strict mode: all properties must be required
+        if "properties" in result:
+            # Add all property keys to required array
+            all_properties = list(result["properties"].keys())
+            result["required"] = all_properties
+
+    # Recursively process nested schemas
+    if "properties" in result:
+        result["properties"] = {
+            key: _add_additional_properties_false(value)
+            for key, value in result["properties"].items()
+        }
+
+    if "items" in result:
+        result["items"] = _add_additional_properties_false(result["items"])
+
+    if "anyOf" in result:
+        result["anyOf"] = [_add_additional_properties_false(item) for item in result["anyOf"]]
+
+    if "allOf" in result:
+        result["allOf"] = [_add_additional_properties_false(item) for item in result["allOf"]]
+
+    if "oneOf" in result:
+        result["oneOf"] = [_add_additional_properties_false(item) for item in result["oneOf"]]
+
+    # Handle definitions/components (Pydantic may put nested schemas here)
+    if "$defs" in result:
+        result["$defs"] = {
+            key: _add_additional_properties_false(value) for key, value in result["$defs"].items()
+        }
+
+    return result
+
+
+def format_schema_for_openrouter(model: str, schema_name: str, base_schema: dict) -> dict:
+    """
+    Format JSON schema for different model providers via OpenRouter
+
+    OpenAI models require strict mode with additionalProperties: false on all objects,
+    while Google/Anthropic models use simpler format.
+
+    Args:
+        model: Model identifier (e.g., "openai/gpt-4o-mini", "google/gemini-2.5-flash")
+        schema_name: Name of the schema (e.g., "query_analysis")
+        base_schema: Pydantic model's .model_json_schema() output
+
+    Returns:
+        Formatted response_format dict for OpenRouter API
+    """
+    # OpenAI models use strict mode and require additionalProperties: false on all objects
+    if model.startswith("openai/"):
+        import json
+
+        # Log the original schema
+        logger.debug(
+            f"[OpenAI Schema] Original base_schema for '{schema_name}': {json.dumps(base_schema, indent=2)}"
+        )
+
+        # Recursively add additionalProperties: false to all objects
+        strict_schema = _add_additional_properties_false(base_schema)
+
+        # Log after processing
+        logger.debug(
+            f"[OpenAI Schema] After _add_additional_properties_false: {json.dumps(strict_schema, indent=2)}"
+        )
+
+        # Ensure the top-level schema has type: object (OpenAI requirement)
+        # Remove None values from type field if present
+        if "type" in strict_schema and strict_schema["type"] is None:
+            logger.warning(
+                f"[OpenAI Schema] Found type: None in schema '{schema_name}', removing it"
+            )
+            del strict_schema["type"]
+
+        # If schema has type: object but no properties, it's invalid
+        if strict_schema.get("type") == "object" and "properties" not in strict_schema:
+            # This shouldn't happen with Pydantic schemas, but log it for debugging
+            logger.error(
+                f"[OpenAI Schema] Schema '{schema_name}' has type: object but no properties! "
+                f"Schema: {json.dumps(strict_schema, indent=2)}"
+            )
+
+        # Ensure object schemas have additionalProperties: false
+        if strict_schema.get("type") == "object" and "additionalProperties" not in strict_schema:
+            strict_schema["additionalProperties"] = False
+
+        # Final schema to send
+        final_schema = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema_name,
+                "strict": True,
+                "schema": strict_schema,
+            },
+        }
+
+        logger.debug(
+            f"[OpenAI Schema] Final formatted schema for '{schema_name}': {json.dumps(final_schema, indent=2)}"
+        )
+
+        return final_schema
+
+    # Google/Anthropic/other models use simpler format
+    else:
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema_name,
+                "strict": True,
+                "schema": base_schema,
+            },
+        }
+
+
 class LLMClient:
     """Client for interacting with LLMs via OpenRouter or OpenAI-compatible APIs"""
 
@@ -107,13 +249,13 @@ class LLMClient:
                 # Both primary and fallback failed
                 logger.error(
                     f"Both primary ({primary_model}) and fallback ({fallback_model}) models failed. "
-                    f"Primary error: {str(primary_error)[:200]}. "
-                    f"Fallback error: {str(fallback_error)[:200]}"
+                    f"Primary error: {str(primary_error)}. "
+                    f"Fallback error: {str(fallback_error)}"
                 )
                 raise Exception(
                     f"LLM generation failed for both primary and fallback models. "
-                    f"Primary ({primary_model}): {str(primary_error)[:200]}. "
-                    f"Fallback ({fallback_model}): {str(fallback_error)[:200]}"
+                    f"Primary ({primary_model}): {str(primary_error)}. "
+                    f"Fallback ({fallback_model}): {str(fallback_error)}"
                 ) from fallback_error
 
     async def _generate_with_model(
@@ -152,11 +294,13 @@ class LLMClient:
 
         # Enable structured output if requested
         if request.json_schema:
-            # Use JSON schema for strict structured output (OpenRouter format)
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": request.json_schema,
-            }
+            # Auto-format schema based on model provider for compatibility
+            schema_name = request.metadata.get("schema_name", "response")
+            payload["response_format"] = format_schema_for_openrouter(
+                model=model,
+                schema_name=schema_name,
+                base_schema=request.json_schema,
+            )
         elif request.json_mode:
             # Fallback to simple JSON mode (less strict)
             payload["response_format"] = {"type": "json_object"}
@@ -168,6 +312,14 @@ class LLMClient:
                 "referer", "https://github.com/JasonXuDeveloper/TracingRAG"
             )
             headers["X-Title"] = request.metadata.get("title", "TracingRAG")
+
+            # Enable strict parameter checking for structured outputs
+            if request.json_schema:
+                import json
+
+                headers["X-OpenRouter-Provider-Preferences"] = json.dumps(
+                    {"require_parameters": True}
+                )
 
         # Retry loop with exponential backoff
         last_exception = None
@@ -191,7 +343,7 @@ class LLMClient:
 
                         logger.warning(
                             f"Rate limit (429) on attempt {attempt + 1}/{max_retries + 1}. "
-                            f"Retrying in {total_delay:.2f}s... Error: {error_body[:200]}"
+                            f"Retrying in {total_delay:.2f}s... Error: {error_body}"
                         )
                         await asyncio.sleep(total_delay)
                         continue
@@ -210,7 +362,7 @@ class LLMClient:
 
                         logger.warning(
                             f"Server error ({response.status_code}) on attempt {attempt + 1}/{max_retries + 1}. "
-                            f"Retrying in {total_delay:.2f}s... Error: {error_body[:200]}"
+                            f"Retrying in {total_delay:.2f}s... Error: {error_body}"
                         )
                         await asyncio.sleep(total_delay)
                         continue
@@ -220,18 +372,24 @@ class LLMClient:
                             f"Response: {error_body}"
                         )
 
-                # Handle 400 errors (these are not retryable - client error)
+                # Handle 400 errors
                 if response.status_code == 400:
                     error_body = response.text
                     # Check if it's a JSON schema issue
                     if request.json_schema and (
-                        "json_schema" in error_body.lower()
-                        or "response_format" in error_body.lower()
+                        "schema" in error_body.lower() or "response_format" in error_body.lower()
                     ):
-                        raise Exception(
-                            f"Model {model} does not support JSON schema structured output. "
-                            f"Error: {error_body}"
+                        # Schema validation errors from provider side might be transient
+                        # Log warning and continue retrying
+                        logger.warning(
+                            f"Schema validation error from provider (attempt {attempt + 1}/{max_retries + 1}): {error_body}"
                         )
+                        last_exception = Exception(
+                            f"Schema validation error - Model: {model} - Response: {error_body}"
+                        )
+                        await asyncio.sleep(base_delay * (2**attempt))
+                        continue
+                    # Other 400 errors are not retryable
                     raise Exception(f"Bad request (400) - Model: {model} - Response: {error_body}")
 
                 # Raise for other HTTP errors (not retryable)

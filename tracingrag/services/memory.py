@@ -14,7 +14,6 @@ from tracingrag.storage.models import MemoryStateDB, TopicLatestStateDB, TraceDB
 from tracingrag.storage.neo4j_client import (
     create_evolution_edge,
     create_memory_node,
-    inherit_parent_relationships,
 )
 from tracingrag.storage.qdrant import upsert_embedding
 from tracingrag.utils.logger import get_logger
@@ -25,7 +24,7 @@ logger = get_logger(__name__)
 class MemoryService:
     """Service for managing memory states across all storage layers"""
 
-    async def create_memory_state(
+    async def _create_state_only(
         self,
         topic: str,
         content: str,
@@ -37,9 +36,8 @@ class MemoryService:
         created_by: str | None = None,
         entity_type: str | None = None,
         entity_schema: dict[str, Any] | None = None,
-        entities: list[tuple[str, str]] | None = None,  # [(entity_type, entity_name), ...]
     ) -> MemoryStateDB:
-        """Create a new memory state
+        """Create memory state only, without processing relationships (for batch scenarios)
 
         Args:
             topic: Topic/key for the memory
@@ -52,30 +50,63 @@ class MemoryService:
             created_by: Creator identifier
             entity_type: Optional entity type
             entity_schema: Optional entity schema
-            entities: List of related entities to link in graph
 
         Returns:
-            Created MemoryStateDB instance
+            Created MemoryStateDB instance (without relationships processed)
         """
         async with get_session() as session:
             # Determine version
             version = await self._get_next_version(session, topic)
 
             # Auto-infer parent_state_id if not provided and this is not the first version
+            # CRITICAL: Use Qdrant (not PostgreSQL) to find latest parent because:
+            # 1. Qdrant updates are immediate (not in transaction)
+            # 2. Avoids race conditions from concurrent state creation
+            # 3. Respects is_latest flag which is set before PostgreSQL commit
             if parent_state_id is None and version > 1:
-                # Get the latest state for this topic to use as parent
-                result = await session.execute(
-                    select(MemoryStateDB)
-                    .where(MemoryStateDB.topic == topic)
-                    .order_by(MemoryStateDB.version.desc())
-                    .limit(1)
+                from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+                from tracingrag.storage.qdrant import get_qdrant_client
+
+                qdrant_client = get_qdrant_client()
+
+                # Query Qdrant for the latest state of this topic
+                results = qdrant_client.scroll(
+                    collection_name="memory_states",
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(key="topic", match=MatchValue(value=topic)),
+                            FieldCondition(key="is_latest", match=MatchValue(value=True)),
+                        ]
+                    ),
+                    limit=1,
+                    with_payload=True,
+                    with_vectors=False,
                 )
-                latest_state = result.scalar_one_or_none()
-                if latest_state:
-                    parent_state_id = latest_state.id
+
+                if results[0]:
+                    latest_point = results[0][0]
+                    parent_state_id = UUID(latest_point.id)
                     logger.info(
-                        f"Auto-inferred parent_state_id for {topic} v{version}: {parent_state_id}"
+                        f"Auto-inferred parent_state_id for {topic} v{version} from Qdrant: {parent_state_id}"
                     )
+                else:
+                    # Fallback to PostgreSQL if Qdrant query fails
+                    logger.warning(
+                        f"Qdrant found no latest state for {topic}, falling back to PostgreSQL"
+                    )
+                    result = await session.execute(
+                        select(MemoryStateDB)
+                        .where(MemoryStateDB.topic == topic)
+                        .order_by(MemoryStateDB.version.desc())
+                        .limit(1)
+                    )
+                    latest_state = result.scalar_one_or_none()
+                    if latest_state:
+                        parent_state_id = latest_state.id
+                        logger.info(
+                            f"Auto-inferred parent_state_id for {topic} v{version} from PostgreSQL: {parent_state_id}"
+                        )
 
             # Generate embedding
             text_for_embedding = await prepare_text_for_embedding(
@@ -108,10 +139,9 @@ class MemoryService:
             session.add(state)
             await session.flush()
 
-            # Concurrently write to Qdrant and Neo4j (PERFORMANCE OPTIMIZATION!)
+            # Concurrently write to Qdrant and Neo4j (node only, relationships processed later)
             import asyncio
 
-            # First: Create node in parallel with embedding
             await asyncio.gather(
                 # Store embedding in Qdrant
                 upsert_embedding(
@@ -124,8 +154,8 @@ class MemoryService:
                         "entity_type": entity_type,
                         "is_consolidated": False,
                         "consolidation_level": 0,
-                        "is_latest": True,  # New states are always latest
-                        "is_active": True,  # New states are active by default
+                        "is_latest": True,
+                        "is_active": True,
                     },
                 ),
                 # Create graph node in Neo4j
@@ -139,8 +169,7 @@ class MemoryService:
                 ),
             )
 
-            # Second: Create evolution edge AFTER node is created
-            # IMPORTANT: Must happen after create_memory_node completes, otherwise MATCH will fail
+            # Create evolution edge if parent exists
             if parent_state_id:
                 await create_evolution_edge(
                     parent_id=parent_state_id,
@@ -149,101 +178,229 @@ class MemoryService:
                     edge_properties={"timestamp": timestamp.isoformat()},
                 )
 
-            # Update parent state's is_latest/is_active to False + archive storage_tier
-            if parent_state_id:
+                # CRITICAL: Update parent state's flags immediately (before commit)
+                # This ensures subsequent operations see the correct state
+                # Update both Qdrant AND Neo4j
                 try:
+                    from tracingrag.storage.neo4j_client import (
+                        update_memory_node_storage_tier,
+                    )
                     from tracingrag.storage.qdrant import get_qdrant_client
 
                     qdrant_client = get_qdrant_client()
+
+                    # Update Qdrant payload
                     qdrant_client.set_payload(
                         collection_name="memory_states",
                         payload={
                             "is_latest": False,
                             "is_active": False,
-                            "storage_tier": "archived",  # Archive old versions
+                            "storage_tier": "archived",
                         },
                         points=[str(parent_state_id)],
                     )
+
+                    # Update Neo4j node storage_tier
+                    await update_memory_node_storage_tier(
+                        state_id=parent_state_id,
+                        storage_tier="archived",
+                    )
+
                     logger.debug(
-                        f"Updated parent {parent_state_id}: is_active=False, storage_tier=archived"
+                        f"Updated parent {parent_state_id} in Qdrant and Neo4j: is_active=False, storage_tier=archived"
                     )
                 except Exception as e:
                     logger.warning(f"Failed to update parent flags (non-critical): {e}")
 
-            # Note: Relationship inheritance handled by RelationshipManager (after transaction)
-
-            # Update or create trace
+            # Update trace
             await self._update_trace(session, topic, state_id)
 
             await session.commit()
             await session.refresh(state)
 
-        # Cascading evolution - evolve related topics based on new memory (BEFORE relationship updates)
-        # This must run BEFORE RelationshipManager so the newly evolved states are included in relationship analysis
-        if settings.enable_cascading_evolution and not metadata.get("cascading_evolution"):
+        return state
+
+    async def create_memory_state(
+        self,
+        topic: str,
+        content: str,
+        parent_state_id: UUID | None = None,
+        metadata: dict[str, Any] | None = None,
+        tags: list[str] | None = None,
+        confidence: float = 1.0,
+        source: str | None = None,
+        created_by: str | None = None,
+        entity_type: str | None = None,
+        entity_schema: dict[str, Any] | None = None,
+        entities: list[tuple[str, str]] | None = None,  # [(entity_type, entity_name), ...]
+    ) -> MemoryStateDB:
+        """Create a new memory state (optimized: snapshots + batch relationship management + directional cleanup)
+
+        Args:
+            topic: Topic/key for the memory
+            content: Main content of the memory
+            parent_state_id: Optional parent state for evolution tracking
+            metadata: Additional metadata
+            tags: List of tags
+            confidence: Confidence score (0-1)
+            source: Source of the memory
+            created_by: Creator identifier
+            entity_type: Optional entity type
+            entity_schema: Optional entity schema
+            entities: List of related entities to link in graph
+
+        Returns:
+            Created MemoryStateDB instance
+        """
+        import asyncio
+
+        # Step 1: Create snapshot before modifying the graph
+        from tracingrag.storage.neo4j_snapshot import get_snapshot_manager
+
+        snapshot_manager = get_snapshot_manager()
+        temp_state_id = uuid4()  # For snapshot filename
+
+        snapshot_path = await snapshot_manager.create_snapshot(
+            state_id=temp_state_id,
+            operation="create",
+            metadata={
+                "topic": topic,
+                "has_parent": parent_state_id is not None,
+            },
+        )
+
+        if snapshot_path:
+            logger.debug(f"📸 Snapshot created: {snapshot_path}")
+
+        # Step 2: Create primary state (without processing relationships)
+        state = await self._create_state_only(
+            topic=topic,
+            content=content,
+            parent_state_id=parent_state_id,
+            metadata=metadata,
+            tags=tags,
+            confidence=confidence,
+            source=source,
+            created_by=created_by,
+            entity_type=entity_type,
+            entity_schema=entity_schema,
+        )
+
+        # Step 3: Cascading evolution (creates cascade states, returns state list)
+        # Note: Cascade states are created WITHOUT relationship processing
+        # All relationship processing happens in batch later
+        cascaded_states = []
+        if settings.enable_cascading_evolution and not (metadata or {}).get("cascading_evolution"):
             try:
                 from tracingrag.services.cascading_evolution import get_cascading_evolution_manager
 
                 cascading_manager = get_cascading_evolution_manager()
-                evolution_stats = await cascading_manager.trigger_related_evolutions(
+                cascade_result = await cascading_manager.trigger_related_evolutions(
                     new_state=state,
                     similarity_threshold=settings.cascading_evolution_similarity_threshold,
                 )
-                logger.info(
-                    f"Cascading evolution completed: "
-                    f"{len(evolution_stats['evolved_topics'])} topics evolved, "
-                    f"{len(evolution_stats['skipped_topics'])} skipped"
-                )
-            except Exception as e:
-                # Don't fail memory creation if cascading evolution fails
-                logger.error(f"Cascading evolution failed (non-critical): {e}")
 
-        # Intelligent relationship management (outside transaction) - always enabled
+                # Validate result structure
+                if not isinstance(cascade_result, dict):
+                    logger.error(
+                        f"Cascade returned invalid type: {type(cascade_result)}, expected dict"
+                    )
+                    cascade_result = {"created_states": [], "statistics": {}}
+
+                cascaded_states = cascade_result.get("created_states", [])
+                logger.info(f"Cascading evolution created {len(cascaded_states)} states")
+            except Exception as e:
+                logger.error(f"Cascading evolution failed (non-critical): {e}")
+                import traceback
+
+                logger.error(f"Traceback:\n{traceback.format_exc()}")
+
+        # Step 4: Collect all new states for batch processing
+        # Note: Promote mechanism is handled separately via promotion.py
+        all_new_states = [state] + cascaded_states
+        logger.info(f"📦 Collected {len(all_new_states)} states for batch processing")
+
+        # Step 6: Batch concurrent relationship analysis (shared candidate cache)
         try:
             from tracingrag.services.relationship_manager import get_relationship_manager
 
             relationship_manager = get_relationship_manager()
 
-            # Evolution scenario: Update relationships based on parent
-            if parent_state_id:
-                stats = await relationship_manager.update_relationships_on_evolution(
-                    new_state=state,
-                    parent_state_id=parent_state_id,
-                    similarity_threshold=settings.relationship_update_similarity_threshold,
+            # Generate batch ID for Redis caching
+            batch_id = f"{state.id}:{datetime.utcnow().timestamp()}"
+
+            # Batch process relationships for all new states
+            # (threshold read from settings.relationship_update_similarity_threshold)
+            stats = await relationship_manager.batch_update_relationships(
+                new_states=all_new_states,
+                batch_id=batch_id,
+            )
+
+            logger.info(
+                f"✅ Batch relationship management: {stats.get('total_relationships', 0)} relationships created"
+            )
+
+        except Exception as e:
+            logger.error(f"Batch relationship management failed: {e}")
+
+            # Fallback: process sequentially (old logic)
+            logger.warning("Falling back to sequential relationship processing")
+            for new_state in all_new_states:
+                try:
+                    if new_state.parent_state_id:
+                        stats = await relationship_manager.update_relationships_on_evolution(
+                            new_state=new_state,
+                            parent_state_id=new_state.parent_state_id,
+                            similarity_threshold=settings.relationship_update_similarity_threshold,
+                        )
+                    else:
+                        stats = await relationship_manager.create_initial_relationships(
+                            new_state=new_state,
+                            similarity_threshold=settings.relationship_update_similarity_threshold,
+                        )
+                except Exception as fallback_e:
+                    logger.error(
+                        f"Fallback relationship processing failed for {new_state.topic}: {fallback_e}"
+                    )
+
+        # Step 7: Batch cleanup all parent states' outgoing relationships in Neo4j
+        # Note: Qdrant flags already updated in _create_state_only for each parent
+        # Collect all parent_state_ids from all new states
+        parent_ids_to_cleanup = []
+        for new_state in all_new_states:
+            if new_state.parent_state_id:
+                parent_ids_to_cleanup.append(new_state.parent_state_id)
+
+        if parent_ids_to_cleanup:
+            logger.info(f"🗑️ Cleaning up {len(parent_ids_to_cleanup)} parent states...")
+            try:
+                from tracingrag.storage.neo4j_client import (
+                    cleanup_old_version_outgoing_relationships,
+                )
+
+                # Cleanup all parent states' outgoing relationships concurrently
+                cleanup_results = await asyncio.gather(
+                    *[
+                        cleanup_old_version_outgoing_relationships(
+                            state_id=pid,
+                            keep_relationship_types=["EVOLVED_TO", "BELONGS_TO"],
+                        )
+                        for pid in parent_ids_to_cleanup
+                    ],
+                    return_exceptions=True,
+                )
+
+                # Log results
+                total_deleted = sum(
+                    r.get("deleted_count", 0) for r in cleanup_results if isinstance(r, dict)
                 )
                 logger.info(
-                    f"Intelligent relationship update completed: "
-                    f"{stats['kept']} kept, {stats['updated']} updated, "
-                    f"{stats['created']} created, {stats['deleted']} deleted"
+                    f"✅ Cleaned {len(parent_ids_to_cleanup)} parent states: "
+                    f"{total_deleted} outgoing relationships deleted"
                 )
-            # First-time creation scenario: Create initial relationships
-            else:
-                stats = await relationship_manager.create_initial_relationships(
-                    new_state=state,
-                    similarity_threshold=settings.relationship_update_similarity_threshold,
-                )
-                logger.info(f"Initial relationships created: {stats['created']} relationships")
-        except Exception as e:
-            # Fallback to simple approach if intelligent update fails
-            logger.error(f"Intelligent relationship management failed: {e}")
 
-            if parent_state_id:
-                # Fallback for evolution: simple inheritance
-                logger.info("Falling back to simple inheritance")
-                try:
-                    inherited_count = await inherit_parent_relationships(
-                        parent_id=parent_state_id,
-                        child_id=state.id,
-                    )
-                    if inherited_count > 0:
-                        logger.info(f"Inherited {inherited_count} relationships (fallback)")
-                except Exception as fallback_e:
-                    logger.error(f"Fallback inheritance also failed: {fallback_e}")
-            else:
-                # No fallback - RelationshipManager handles all relationships
-                logger.info("No parent relationships (first version of this topic)")
-
-        # Note: Auto-linking removed - RelationshipManager handles all relationships intelligently
+            except Exception as e:
+                logger.warning(f"Failed to cleanup parent relationships (non-critical): {e}")
 
         return state
 
@@ -499,3 +656,152 @@ class MemoryService:
             trace.updated_at = datetime.utcnow()
 
         await session.flush()
+
+    async def cleanup_all_data(self) -> dict[str, Any]:
+        """Cleanup all TracingRAG data from all storage layers
+
+        WARNING: This will permanently delete ALL TracingRAG data!
+        - PostgreSQL: MemoryStateDB and TraceDB tables
+        - Qdrant: memory_states collection
+        - Neo4j: MemoryState nodes and their relationships
+        - Redis: TracingRAG cache keys (prefix: tracingrag:*)
+
+        Returns:
+            Statistics about deleted data
+        """
+        from sqlalchemy import delete
+
+        from tracingrag.storage.models import TraceDB
+        from tracingrag.storage.neo4j_client import get_neo4j_driver
+        from tracingrag.storage.qdrant import get_qdrant_client
+
+        stats = {
+            "postgresql": {"memories": 0, "traces": 0, "topic_latest_states": 0},
+            "qdrant": {"points": 0},
+            "neo4j": {"nodes": 0, "relationships": 0},
+            "redis": {"keys": 0},
+        }
+
+        logger.warning("🗑️ Starting cleanup of ALL TracingRAG data from all databases...")
+
+        # Step 1: Count and delete from PostgreSQL
+        try:
+            async with get_session() as session:
+                # Count memories
+                memories_count_result = await session.execute(select(func.count(MemoryStateDB.id)))
+                stats["postgresql"]["memories"] = memories_count_result.scalar() or 0
+
+                # Count traces
+                traces_count_result = await session.execute(select(func.count(TraceDB.id)))
+                stats["postgresql"]["traces"] = traces_count_result.scalar() or 0
+
+                # Count topic_latest_states
+                topic_latest_count_result = await session.execute(
+                    select(func.count(TopicLatestStateDB.topic))
+                )
+                stats["postgresql"]["topic_latest_states"] = topic_latest_count_result.scalar() or 0
+
+                # Delete in correct order (respect foreign key constraints):
+                # 1. First delete topic_latest_states (references memory_states)
+                await session.execute(delete(TopicLatestStateDB))
+
+                # 2. Then delete traces
+                await session.execute(delete(TraceDB))
+
+                # 3. Finally delete memory_states
+                await session.execute(delete(MemoryStateDB))
+
+                await session.commit()
+
+            logger.info(
+                f"   ✓ PostgreSQL: Deleted {stats['postgresql']['memories']} memories, "
+                f"{stats['postgresql']['traces']} traces, "
+                f"{stats['postgresql']['topic_latest_states']} topic latest states"
+            )
+        except Exception as e:
+            logger.error(f"   ✗ PostgreSQL cleanup failed: {e}")
+            raise
+
+        # Step 2: Delete from Qdrant (only memory_states collection)
+        try:
+            qdrant_client = get_qdrant_client()
+
+            # Get count before deletion
+            try:
+                collection_info = qdrant_client.get_collection("memory_states")
+                stats["qdrant"]["points"] = collection_info.points_count
+            except Exception:
+                stats["qdrant"]["points"] = 0
+
+            # Delete collection and recreate
+            from tracingrag.services.embedding import get_embedding_dimension
+
+            embedding_dim = get_embedding_dimension()
+
+            qdrant_client.delete_collection("memory_states")
+            logger.info(f"   ✓ Qdrant: Deleted {stats['qdrant']['points']} points")
+
+            # Recreate empty collection
+            from tracingrag.storage.qdrant import init_qdrant_collection
+
+            await init_qdrant_collection(
+                collection_name="memory_states",
+                vector_size=embedding_dim,
+            )
+            logger.info(f"   ✓ Qdrant: Recreated empty collection (dimension: {embedding_dim})")
+
+        except Exception as e:
+            logger.error(f"   ✗ Qdrant cleanup failed: {e}")
+
+        # Step 3: Delete from Neo4j (only MemoryState nodes)
+        try:
+            driver = get_neo4j_driver()
+            async with driver.session(database=settings.neo4j_database) as session:
+                # Count MemoryState nodes and their relationships
+                count_result = await session.run(
+                    """
+                    MATCH (m:MemoryState)
+                    OPTIONAL MATCH (m)-[r]-()
+                    RETURN count(DISTINCT m) AS node_count, count(DISTINCT r) AS rel_count
+                    """
+                )
+                record = await count_result.single()
+                stats["neo4j"]["nodes"] = record["node_count"] or 0
+                stats["neo4j"]["relationships"] = record["rel_count"] or 0
+
+                # Delete only MemoryState nodes and their relationships
+                await session.run("MATCH (m:MemoryState) DETACH DELETE m")
+
+            logger.info(
+                f"   ✓ Neo4j: Deleted {stats['neo4j']['nodes']} MemoryState nodes, "
+                f"{stats['neo4j']['relationships']} relationships"
+            )
+
+        except Exception as e:
+            logger.error(f"   ✗ Neo4j cleanup failed: {e}")
+
+        # Step 4: Clear Redis cache (only TracingRAG keys with prefix)
+        try:
+            from tracingrag.storage.redis_client import get_redis_client
+
+            # Delete keys with TracingRAG prefix (e.g., "tracingrag:*", "candidates:*", etc.)
+            redis_client = await get_redis_client()
+            deleted_keys = 0
+            prefixes = ["tracingrag:", "candidates:", "batch:"]
+
+            for prefix in prefixes:
+                keys = await redis_client.keys(f"{prefix}*")
+                if keys:
+                    await redis_client.delete(*keys)
+                    deleted_keys += len(keys)
+
+            stats["redis"]["keys"] = deleted_keys
+
+            logger.info(f"   ✓ Redis: Deleted {stats['redis']['keys']} TracingRAG cache keys")
+
+        except Exception as e:
+            logger.error(f"   ✗ Redis cleanup failed: {e}")
+
+        logger.warning("✅ All TracingRAG data cleanup complete!")
+
+        return stats

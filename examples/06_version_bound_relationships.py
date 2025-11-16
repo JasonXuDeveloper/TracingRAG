@@ -30,7 +30,7 @@ async def main():
     """Demonstrate version-bound relationships and asymmetric knowledge"""
 
     # Initialize client
-    client = AsyncTracingRAGClient(base_url="http://localhost:8000")
+    client = AsyncTracingRAGClient(base_url="http://localhost:8000", timeout=3000.0)
 
     print("=" * 80)
     print("TracingRAG Example 06: Version-Bound Relationships & Asymmetric Knowledge")

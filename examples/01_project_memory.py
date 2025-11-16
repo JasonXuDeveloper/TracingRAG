@@ -31,7 +31,7 @@ async def main():
 
     # Initialize client
     print("📡 Connecting to TracingRAG API...")
-    async with AsyncTracingRAGClient("http://localhost:8000", timeout=120.0) as client:
+    async with AsyncTracingRAGClient("http://localhost:8000", timeout=3000.0) as client:
         # Check health
         health = await client.health()
         if health["status"] != "healthy":
@@ -139,12 +139,12 @@ async def main():
             if result1.reasoning:
                 print(f"   Reasoning: {result1.reasoning[:150]}...")
 
-        # Query 2: Historical query with agent mode
+        # Query 2: Historical query (uses iterative agent by default)
         print("\n   Query 2: 'Why did we change from microservices to modular monolith?'")
         result2 = await client.query(
             "Why did we change from microservices to modular monolith? What were the challenges?",
             include_history=True,
-            use_agent=True,  # Use agent for more intelligent retrieval
+            max_rounds=5,  # Agent mode is default (max_rounds > 0)
         )
         if result2.answer:
             print(f"   Answer: {result2.answer[:250]}...")
@@ -155,7 +155,6 @@ async def main():
         print("\n   Query 3: 'What database and caching solutions are we using?'")
         result3 = await client.query(
             "What database and caching solutions are we using in our current tech stack?",
-            use_agent=True,
             include_related=True,
         )
         if result3.answer:
@@ -199,14 +198,15 @@ async def main():
     print("Key Takeaways:")
     print("   - TracingRAG tracks complete project evolution")
     print("   - Each decision and change is preserved with context")
-    print("   - Use 'use_agent=True' for intelligent query retrieval")
-    print("   - Agent mode combines semantic search, graph relationships, and history")
+    print("   - Iterative agent mode is enabled by default (max_rounds=5)")
+    print("   - Agent combines semantic search, graph relationships, and history")
     print("   - More specific queries with keywords yield better results")
     print("   - Memory promotion synthesizes information intelligently")
     print()
     print("Query Best Practices:")
-    print("   ✓ Enable use_agent=True for complex queries")
-    print("   ✓ Include specific keywords and context in queries")
+    print("   ✓ Default mode uses intelligent iterative agent (max_rounds=5)")
+    print("   ✓ Increase max_rounds for complex queries requiring deep analysis")
+    print("   ✓ Set max_rounds=0 for fast simple queries (no agent)")
     print("   ✓ Use include_history=True for temporal questions")
     print("   ✓ Use include_related=True to leverage graph relationships")
     print()

@@ -1,32 +1,15 @@
-"""TracingRAG Agents - Intelligent query planning and memory management"""
+"""TracingRAG Agents - Intelligent query processing and memory management"""
 
+from tracingrag.agents.iterative_query_agent import IterativeQueryAgent, IterativeQueryResult
 from tracingrag.agents.memory_manager import MemoryManagerAgent
-from tracingrag.agents.models import (
-    AgentAction,
-    AgentResult,
-    AgentState,
-    AgentStep,
-    MemorySuggestion,
-    RetrievalPlan,
-)
-from tracingrag.agents.query_planner import QueryPlannerAgent
-from tracingrag.agents.service import AgentService, query_with_agent
-from tracingrag.agents.tools import AgentTools
+from tracingrag.agents.service import AgentService
 
 __all__ = [
-    # Models
-    "AgentAction",
-    "AgentState",
-    "AgentStep",
-    "AgentResult",
-    "RetrievalPlan",
-    "MemorySuggestion",
-    # Tools
-    "AgentTools",
     # Agents
-    "QueryPlannerAgent",
+    "IterativeQueryAgent",
     "MemoryManagerAgent",
     # Service
     "AgentService",
-    "query_with_agent",
+    # Models
+    "IterativeQueryResult",
 ]

@@ -75,3 +75,4 @@ grafana_data/
 .ruff_cache/
 .dmypy.json
 dmypy.json
+/data

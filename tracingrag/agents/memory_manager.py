@@ -3,12 +3,23 @@
 import json
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from tracingrag.agents.models import MemorySuggestion
 from tracingrag.config import settings
 from tracingrag.core.models.rag import LLMRequest
 from tracingrag.services.graph import GraphService
 from tracingrag.services.llm import LLMClient, get_llm_client
 from tracingrag.services.memory import MemoryService
+
+
+class PromotionAnalysisResponse(BaseModel):
+    """Pydantic schema for promotion analysis LLM response"""
+
+    needs_promotion: bool = Field(..., description="Whether promotion is needed")
+    rationale: str = Field(..., description="Explanation of the decision")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
+    priority: int = Field(..., ge=1, le=10, description="Priority 1-10")
 
 
 class MemoryManagerAgent:
@@ -93,39 +104,6 @@ class MemoryManagerAgent:
         # Build context about the topic's evolution
         context = self._build_version_context(versions)
 
-        # Define JSON schema for promotion analysis
-        analysis_schema = {
-            "name": "promotion_analysis",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "needs_promotion": {
-                        "type": "boolean",
-                        "description": "Whether promotion is needed",
-                    },
-                    "rationale": {
-                        "type": "string",
-                        "description": "Explanation of the decision",
-                    },
-                    "confidence": {
-                        "type": "number",
-                        "minimum": 0.0,
-                        "maximum": 1.0,
-                        "description": "Confidence score",
-                    },
-                    "priority": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 10,
-                        "description": "Priority 1-10",
-                    },
-                },
-                "required": ["needs_promotion", "rationale", "confidence", "priority"],
-                "additionalProperties": False,
-            },
-        }
-
         prompt = f"""Analyze if this memory topic needs promotion (consolidation into a summary).
 
 Topic: {topic}
@@ -148,8 +126,8 @@ Respond with your analysis."""
             model=self.manager_model,
             temperature=0.0,
             max_tokens=4000,  # Generous limit to prevent truncation while keeping costs reasonable
-            json_schema=analysis_schema,
-            metadata={"task": "promotion_analysis"},
+            json_schema=PromotionAnalysisResponse.model_json_schema(),  # Auto-formatted by LLM client
+            metadata={"task": "promotion_analysis", "schema_name": "promotion_analysis"},
         )
 
         response = await self.llm_client.generate(request)

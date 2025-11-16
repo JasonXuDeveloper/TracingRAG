@@ -8,6 +8,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from tracingrag.config import settings
@@ -24,6 +25,55 @@ from tracingrag.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+
+# ============================================================================
+# Pydantic Schemas for LLM Structured Outputs
+# ============================================================================
+
+
+class ExistingRelationshipDecision(BaseModel):
+    """Decision about an existing relationship"""
+
+    index: int = Field(..., description="1-based index of existing relationship")
+    action: str = Field(
+        ...,
+        description="Action to take",
+        pattern="^(keep_existing|update_to_newer|remove_existing)$",
+    )
+    reasoning: str = Field(..., max_length=80, description="Reason for decision")
+
+
+class NewRelationshipDecision(BaseModel):
+    """Decision to create a new relationship"""
+
+    candidate_index: int = Field(..., description="1-based index of candidate state")
+    relationship_type: str = Field(
+        ...,
+        description="Type of relationship",
+        pattern="^(RELATES_TO|DEPENDS_ON|SIMILAR_TO|PART_OF|AWARE_OF|MONITORS|CAUSED_BY|CREATED_BY|INFLUENCED_BY|HIDDEN_FROM|UNAWARE_OF)$",
+    )
+    reasoning: str = Field(..., max_length=80, description="Reason for creating relationship")
+
+
+class RelationshipAnalysisResponse(BaseModel):
+    """Schema for relationship analysis (with existing and new)"""
+
+    existing: list[ExistingRelationshipDecision] = Field(
+        default_factory=list, description="Decisions about existing relationships"
+    )
+    new: list[NewRelationshipDecision] = Field(
+        default_factory=list, description="Decisions to create new relationships"
+    )
+
+
+class InitialRelationshipCreationResponse(BaseModel):
+    """Schema for initial relationship creation (only new, no existing)"""
+
+    new: list[NewRelationshipDecision] = Field(
+        default_factory=list, description="Decisions to create new relationships"
+    )
+
+
 if TYPE_CHECKING:
     pass
 
@@ -33,6 +83,99 @@ class RelationshipManager:
 
     def __init__(self):
         self.llm_client = get_llm_client()
+
+    async def batch_update_relationships(
+        self,
+        new_states: list[MemoryStateDB],
+        batch_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Batch process relationships for multiple new states concurrently
+
+        Args:
+            new_states: List of newly created memory states
+            batch_id: Optional batch ID for caching (unused for now)
+
+        Returns:
+            Dict with batch statistics:
+            - total_relationships: Total relationships created/updated
+            - per_state_stats: List of stats per state
+        """
+        import asyncio
+
+        from tracingrag.config import settings
+
+        # Use threshold from settings
+        similarity_threshold = settings.relationship_update_similarity_threshold
+
+        logger.info(
+            f"Batch processing relationships for {len(new_states)} states "
+            f"(threshold: {similarity_threshold})..."
+        )
+
+        # Process each state concurrently
+        async def process_state(state: MemoryStateDB) -> dict[str, Any]:
+            """Process relationships for a single state"""
+            try:
+                if state.parent_state_id:
+                    # State has parent (evolution) - update relationships
+                    return await self.update_relationships_on_evolution(
+                        new_state=state,
+                        parent_state_id=state.parent_state_id,
+                        similarity_threshold=similarity_threshold,
+                    )
+                else:
+                    # State has no parent (initial creation) - create initial relationships
+                    return await self.create_initial_relationships(
+                        new_state=state,
+                        similarity_threshold=similarity_threshold,
+                    )
+            except Exception as e:
+                logger.error(f"Failed to process relationships for {state.topic}: {e}")
+                return {"error": str(e)}
+
+        # Execute all relationship processing concurrently
+        results = await asyncio.gather(
+            *[process_state(state) for state in new_states],
+            return_exceptions=True,
+        )
+
+        # Collect statistics
+        total_relationships = 0
+        per_state_stats = []
+
+        for state, result in zip(new_states, results, strict=False):
+            if isinstance(result, Exception):
+                logger.error(f"Exception processing {state.topic}: {result}")
+                per_state_stats.append(
+                    {
+                        "topic": state.topic,
+                        "version": state.version,
+                        "error": str(result),
+                    }
+                )
+            elif isinstance(result, dict):
+                # Sum up relationships created
+                created = result.get("created", 0)
+                kept = result.get("kept", 0)
+                total_relationships += created + kept
+
+                per_state_stats.append(
+                    {
+                        "topic": state.topic,
+                        "version": state.version,
+                        "created": created,
+                        "kept": kept,
+                    }
+                )
+
+        logger.info(
+            f"✅ Batch relationship processing complete: {total_relationships} total relationships"
+        )
+
+        return {
+            "total_relationships": total_relationships,
+            "per_state_stats": per_state_stats,
+        }
 
     async def _call_llm_with_retry(
         self,
@@ -758,63 +901,6 @@ Respond with JSON:
             f"{estimated_output_tokens} output = {max_tokens} max_tokens"
         )
 
-        # JSON schema
-        schema = {
-            "name": "relationship_analysis",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "existing": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "index": {"type": "integer"},
-                                "action": {
-                                    "type": "string",
-                                    "enum": ["keep_existing", "update_to_newer", "remove_existing"],
-                                },
-                                "reasoning": {"type": "string", "maxLength": 80},
-                            },
-                            "required": ["index", "action", "reasoning"],
-                            "additionalProperties": False,
-                        },
-                    },
-                    "new": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "candidate_index": {"type": "integer"},
-                                "relationship_type": {
-                                    "type": "string",
-                                    "enum": [
-                                        "RELATES_TO",
-                                        "DEPENDS_ON",
-                                        "SIMILAR_TO",
-                                        "PART_OF",
-                                        "AWARE_OF",
-                                        "MONITORS",
-                                        "CAUSED_BY",
-                                        "CREATED_BY",
-                                        "INFLUENCED_BY",
-                                        "HIDDEN_FROM",
-                                        "UNAWARE_OF",
-                                    ],
-                                },
-                                "reasoning": {"type": "string", "maxLength": 80},
-                            },
-                            "required": ["candidate_index", "relationship_type", "reasoning"],
-                            "additionalProperties": False,
-                        },
-                    },
-                },
-                "required": ["existing", "new"],
-                "additionalProperties": False,
-            },
-        }
-
         request = LLMRequest(
             system_prompt="You are an expert knowledge graph curator analyzing memory relationships. You MUST respond with ONLY valid JSON using the exact relationship types specified in the schema. Do NOT add any explanations or text outside the JSON object.",
             user_message=prompt,
@@ -822,7 +908,8 @@ Respond with JSON:
             model=settings.analysis_model,
             temperature=0.1,  # Lower temperature for more consistent output
             max_tokens=max_tokens,
-            json_schema=schema,
+            json_schema=RelationshipAnalysisResponse.model_json_schema(),  # Pydantic schema (auto-formatted)
+            metadata={"schema_name": "relationship_analysis"},
         )
 
         # Call LLM with automatic retry
@@ -1071,64 +1158,6 @@ Respond with JSON (only include actions to take, skip non-actions):
             f"Estimated input: {input_tokens} tokens, output: {estimated_output} tokens, using max_tokens={max_tokens}"
         )
 
-        schema = {
-            "name": "comprehensive_relationship_analysis",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "existing": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "index": {"type": "integer"},
-                                "action": {
-                                    "type": "string",
-                                    "enum": ["keep_existing", "update_to_newer", "remove_existing"],
-                                },
-                                "reasoning": {"type": "string", "maxLength": 80},
-                            },
-                            "required": ["index", "action", "reasoning"],
-                            "additionalProperties": False,
-                        },
-                    },
-                    "new": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "candidate_index": {"type": "integer"},
-                                "relationship_type": {
-                                    "type": "string",
-                                    "enum": [
-                                        # Dynamic relationships
-                                        "RELATES_TO",
-                                        "DEPENDS_ON",
-                                        "SIMILAR_TO",
-                                        "PART_OF",
-                                        "AWARE_OF",
-                                        "MONITORS",
-                                        # Version-bound relationships
-                                        "CAUSED_BY",
-                                        "CREATED_BY",
-                                        "INFLUENCED_BY",
-                                        "HIDDEN_FROM",
-                                        "UNAWARE_OF",
-                                    ],
-                                },
-                                "reasoning": {"type": "string", "maxLength": 80},
-                            },
-                            "required": ["candidate_index", "relationship_type", "reasoning"],
-                            "additionalProperties": False,
-                        },
-                    },
-                },
-                "required": ["existing", "new"],
-                "additionalProperties": False,
-            },
-        }
-
         request = LLMRequest(
             system_prompt="You are an expert knowledge graph curator. Maintain semantic accuracy and relevance. You MUST respond with ONLY valid JSON using the exact relationship types specified in the schema. Do NOT add any explanations or text outside the JSON object.",
             user_message=prompt,
@@ -1136,7 +1165,8 @@ Respond with JSON (only include actions to take, skip non-actions):
             model=settings.analysis_model,
             temperature=0.1,  # Lower temperature for more consistent output
             max_tokens=max_tokens,  # Dynamically calculated
-            json_schema=schema,
+            json_schema=RelationshipAnalysisResponse.model_json_schema(),  # Pydantic schema (auto-formatted)
+            metadata={"schema_name": "comprehensive_relationship_analysis"},
         )
 
         # Call LLM with automatic retry
@@ -1342,48 +1372,6 @@ Respond with JSON (only include relationships to create):
             f"Initial relationships: estimated input={input_tokens}, output={estimated_output}, max_tokens={max_tokens}"
         )
 
-        schema = {
-            "name": "initial_relationship_creation",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "new": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "candidate_index": {"type": "integer"},
-                                "relationship_type": {
-                                    "type": "string",
-                                    "enum": [
-                                        # Dynamic relationships
-                                        "RELATES_TO",
-                                        "DEPENDS_ON",
-                                        "SIMILAR_TO",
-                                        "PART_OF",
-                                        "AWARE_OF",
-                                        "MONITORS",
-                                        # Version-bound relationships
-                                        "CAUSED_BY",
-                                        "CREATED_BY",
-                                        "INFLUENCED_BY",
-                                        "HIDDEN_FROM",
-                                        "UNAWARE_OF",
-                                    ],
-                                },
-                                "reasoning": {"type": "string", "maxLength": 80},
-                            },
-                            "required": ["candidate_index", "relationship_type", "reasoning"],
-                            "additionalProperties": False,
-                        },
-                    },
-                },
-                "required": ["new"],
-                "additionalProperties": False,
-            },
-        }
-
         request = LLMRequest(
             system_prompt="You are an expert knowledge graph curator. Carefully decide which relationships to create. You MUST respond with ONLY valid JSON using the exact relationship types specified in the schema. DO NOT add any explanations or text outside the JSON object.",
             user_message=prompt,
@@ -1391,7 +1379,8 @@ Respond with JSON (only include relationships to create):
             model=settings.analysis_model,
             temperature=0.1,  # Lower temperature for more consistent output
             max_tokens=max_tokens,  # Dynamically calculated
-            json_schema=schema,
+            json_schema=InitialRelationshipCreationResponse.model_json_schema(),  # Pydantic schema (auto-formatted)
+            metadata={"schema_name": "initial_relationship_creation"},
         )
 
         # Call LLM with automatic retry

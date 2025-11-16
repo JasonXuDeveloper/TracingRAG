@@ -54,6 +54,50 @@ class CacheService:
 
     def __init__(self):
         self.default_ttl = 900  # 15 minutes
+        self.redis = None  # Will be set lazily
+
+    async def _get_redis(self) -> redis.Redis:
+        """Get Redis client (lazy initialization)"""
+        if self.redis is None:
+            self.redis = await get_redis_client()
+        return self.redis
+
+    async def get(self, key: str) -> str | None:
+        """Generic get method for caching
+
+        Args:
+            key: Cache key
+
+        Returns:
+            Cached value or None if not found
+        """
+        if not REDIS_AVAILABLE:
+            return None
+
+        try:
+            client = await self._get_redis()
+            return await client.get(key)
+        except Exception as e:
+            logger.debug(f"Cache get failed for {key}: {e}")
+            return None
+
+    async def set(self, key: str, value: str, ttl: int | None = None) -> None:
+        """Generic set method for caching
+
+        Args:
+            key: Cache key
+            value: Value to cache
+            ttl: Time to live in seconds (default: 15 minutes)
+        """
+        if not REDIS_AVAILABLE:
+            return
+
+        try:
+            client = await self._get_redis()
+            ttl = ttl or self.default_ttl
+            await client.setex(key, ttl, value)
+        except Exception as e:
+            logger.debug(f"Cache set failed for {key}: {e}")
 
     async def get_formatted_state(self, state_id: str) -> str | None:
         """

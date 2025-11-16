@@ -31,7 +31,7 @@ async def simulate_npc_interactions():
 
     # Initialize client
     print("📡 Connecting to TracingRAG API...")
-    async with AsyncTracingRAGClient("http://localhost:8000", timeout=120.0) as client:
+    async with AsyncTracingRAGClient("http://localhost:8000", timeout=3000.0) as client:
         health = await client.health()
         if health["status"] != "healthy":
             print("❌ API is not healthy. Please start the API server.")

@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
+from tracingrag.types import Citation
 from tracingrag.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -16,7 +17,7 @@ logger = get_logger(__name__)
 
 
 class MemoryState(BaseModel):
-    """Memory state response model"""
+    """Memory state response model (client-specific version with extra fields)"""
 
     id: str
     topic: str
@@ -49,6 +50,9 @@ class QueryResponse(BaseModel):
     answer: str
     sources: list[MemoryState] = []
     confidence: float = 0.0
+    key_findings: list[str] = []
+    citations: list[Citation] = []
+    uncertainties: list[str] = []
     reasoning: str | None = None
     metadata: dict[str, Any] = {}
 
@@ -309,7 +313,8 @@ class TracingRAGClient:
         self,
         query: str,
         limit: int = 10,
-        use_agent: bool = False,
+        max_rounds: int = 5,
+        max_tokens_per_round: int = 20000,
         include_history: bool = False,
         include_related: bool = True,
         depth: int = 2,
@@ -319,7 +324,8 @@ class TracingRAGClient:
         Args:
             query: Natural language query
             limit: Maximum number of results
-            use_agent: Whether to use agent-based retrieval (slower but smarter)
+            max_rounds: Maximum rounds for iterative agent (default 5). Set to 0 for simple RAG mode (no agent)
+            max_tokens_per_round: Max tokens per round for agent mode (default 20k, ignored if max_rounds=0)
             include_history: Include version history in context
             include_related: Include graph-related states
             depth: Graph traversal depth
@@ -328,23 +334,27 @@ class TracingRAGClient:
             Query response with answer and sources
 
         Example:
-            >>> # Simple query
+            >>> # Default: Uses iterative agent with up to 5 rounds
             >>> result = client.query("What is project alpha?")
             >>> print(result.answer)
 
-            >>> # Agent-based query with more context
+            >>> # Custom agent settings for complex queries
             >>> result = client.query(
-            ...     "What changed in project alpha?",
-            ...     use_agent=True,
-            ...     include_history=True
+            ...     "What changed in project alpha over time?",
+            ...     max_rounds=10,
+            ...     max_tokens_per_round=30000
             ... )
             >>> print(f"Answer: {result.answer}")
-            >>> print(f"Reasoning: {result.reasoning_steps}")
+            >>> print(f"Reasoning: {result.reasoning}")
+
+            >>> # Simple mode without agent (faster, less intelligent)
+            >>> result = client.query("Quick fact check", max_rounds=0)
         """
         data = {
             "query": query,
             "limit": limit,
-            "use_agent": use_agent,
+            "max_rounds": max_rounds,
+            "max_tokens_per_round": max_tokens_per_round,
             "include_history": include_history,
             "include_related": include_related,
             "depth": depth,
@@ -567,6 +577,21 @@ class AsyncTracingRAGClient:
         response.raise_for_status()
         return response.json()
 
+    async def cleanup_all(self) -> dict[str, Any]:
+        """Delete ALL TracingRAG data from all storage layers
+
+        WARNING: This will permanently delete ALL data!
+
+        Returns:
+            Statistics about deleted data including counts from each storage layer
+        """
+        response = await self._client.delete(
+            "/api/v1/memories",
+            params={"confirm": "DELETE_ALL_DATA"},
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def list_memories(
         self,
         topic: str | None = None,
@@ -594,16 +619,31 @@ class AsyncTracingRAGClient:
         self,
         query: str,
         limit: int = 10,
-        use_agent: bool = False,
+        max_rounds: int = 5,
+        max_tokens_per_round: int = 20000,
         include_history: bool = False,
         include_related: bool = True,
         depth: int = 2,
     ) -> QueryResponse:
-        """Query the RAG system"""
+        """Query the RAG system
+
+        Args:
+            query: Natural language query
+            limit: Maximum number of results
+            max_rounds: Maximum rounds for iterative agent (default 5). Set to 0 for simple RAG mode (no agent)
+            max_tokens_per_round: Max tokens per round for agent mode (default 20k, ignored if max_rounds=0)
+            include_history: Include version history in context
+            include_related: Include graph-related states
+            depth: Graph traversal depth
+
+        Returns:
+            Query response with answer and sources
+        """
         data = {
             "query": query,
             "limit": limit,
-            "use_agent": use_agent,
+            "max_rounds": max_rounds,
+            "max_tokens_per_round": max_tokens_per_round,
             "include_history": include_history,
             "include_related": include_related,
             "depth": depth,

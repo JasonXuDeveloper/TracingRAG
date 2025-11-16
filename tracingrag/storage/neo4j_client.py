@@ -579,6 +579,29 @@ async def get_related_memories(
         ]
 
 
+async def update_memory_node_storage_tier(
+    state_id: UUID,
+    storage_tier: str,
+) -> None:
+    """Update storage tier for a memory state node in Neo4j
+
+    Args:
+        state_id: UUID of the memory state
+        storage_tier: New storage tier (active/archived/cold)
+    """
+    driver = get_neo4j_driver()
+
+    async with driver.session(database=settings.neo4j_database) as session:
+        await session.run(
+            """
+            MATCH (m:MemoryState {id: $state_id})
+            SET m.storage_tier = $storage_tier
+            """,
+            state_id=str(state_id),
+            storage_tier=storage_tier,
+        )
+
+
 async def delete_memory_node(state_id: UUID) -> None:
     """Delete a memory state node and clean up orphan Topic nodes
 
@@ -637,6 +660,156 @@ async def delete_memory_node(state_id: UUID) -> None:
                     topic_name=topic_name,
                 )
                 logger.info(f"Deleted orphan Topic node: {topic_name}")
+
+
+async def cleanup_old_version_outgoing_relationships(
+    state_id: UUID,
+    keep_relationship_types: list[str] | None = None,
+) -> dict[str, Any]:
+    """Cleanup outgoing relationships from a specific state (directional deletion)
+
+    Only deletes relationships FROM this state TO other states (outgoing edges),
+    preserving relationships FROM other states TO this state (incoming edges).
+    This allows other states to reference old versions while preventing old
+    versions from maintaining outdated relationships.
+
+    Args:
+        state_id: State ID to clean up
+        keep_relationship_types: Relationship types to preserve, defaults to ['EVOLVED_TO', 'BELONGS_TO']
+
+    Returns:
+        {
+            "deleted_count": int,  # Number of relationships deleted
+            "kept_count": int,     # Number of relationships kept
+            "deleted_types": dict[str, int],  # Count of deletions by type
+        }
+    """
+    driver = get_neo4j_driver()
+
+    # Default: preserve EVOLVED_TO (historical trace) and BELONGS_TO (topic membership)
+    if keep_relationship_types is None:
+        keep_relationship_types = ["EVOLVED_TO", "BELONGS_TO"]
+
+    async with driver.session(database=settings.neo4j_database) as session:
+        # Step 1: Count relationships to be deleted
+        stats_result = await session.run(
+            """
+            MATCH (m:MemoryState {id: $state_id})-[r]->()
+            WHERE NOT type(r) IN $keep_types
+            RETURN type(r) AS rel_type, count(r) AS count
+            """,
+            state_id=str(state_id),
+            keep_types=keep_relationship_types,
+        )
+
+        deleted_types = {}
+        async for record in stats_result:
+            deleted_types[record["rel_type"]] = record["count"]
+
+        # Step 2: Delete outgoing relationships (only FROM this node)
+        delete_result = await session.run(
+            """
+            MATCH (m:MemoryState {id: $state_id})-[r]->()
+            WHERE NOT type(r) IN $keep_types
+            DELETE r
+            RETURN count(r) AS deleted_count
+            """,
+            state_id=str(state_id),
+            keep_types=keep_relationship_types,
+        )
+
+        record = await delete_result.single()
+        deleted_count = record["deleted_count"] if record else 0
+
+        # Step 3: Count remaining relationships (including outgoing + all incoming)
+        kept_result = await session.run(
+            """
+            MATCH (m:MemoryState {id: $state_id})-[r]-()
+            RETURN count(r) AS kept_count
+            """,
+            state_id=str(state_id),
+        )
+
+        record = await kept_result.single()
+        kept_count = record["kept_count"] if record else 0
+
+        result = {
+            "deleted_count": deleted_count,
+            "kept_count": kept_count,
+            "deleted_types": deleted_types,
+        }
+
+        logger.info(
+            f"🗑️ Cleaned state {state_id}: "
+            f"deleted {deleted_count} outgoing relationships, "
+            f"kept {kept_count} relationships (including incoming)"
+        )
+        logger.debug(f"   Deleted types: {deleted_types}")
+
+        return result
+
+
+async def batch_create_relationships(relationships: list[dict[str, Any]]) -> None:
+    """Batch create relationships using UNWIND optimization
+
+    Args:
+        relationships: [
+            {
+                "source_id": UUID,
+                "target_id": UUID,
+                "rel_type": str,
+                "properties": dict,
+            },
+            ...
+        ]
+    """
+    if not relationships:
+        return
+
+    driver = get_neo4j_driver()
+
+    # Convert to Neo4j-compatible format
+    rel_data = [
+        {
+            "source_id": str(r["source_id"]),
+            "target_id": str(r["target_id"]),
+            "rel_type": r["rel_type"],
+            "properties": json.dumps(r.get("properties", {})),
+        }
+        for r in relationships
+    ]
+
+    async with driver.session(database=settings.neo4j_database) as session:
+        # Use UNWIND for batch creation - process each relationship type separately
+        # Group by type first
+        rels_by_type = {}
+        for rel in rel_data:
+            rel_type = rel["rel_type"]
+            if rel_type not in rels_by_type:
+                rels_by_type[rel_type] = []
+            rels_by_type[rel_type].append(rel)
+
+        # Batch create for each type
+        total_created = 0
+        for rel_type, rels in rels_by_type.items():
+            result = await session.run(
+                f"""
+                UNWIND $relationships AS rel
+                MATCH (source:MemoryState {{id: rel.source_id}})
+                MATCH (target:MemoryState {{id: rel.target_id}})
+                CREATE (source)-[r:{rel_type}]->(target)
+                SET r.properties = rel.properties,
+                    r.created_at = datetime()
+                RETURN count(r) AS created_count
+                """,
+                relationships=rels,
+            )
+
+            record = await result.single()
+            count = record["created_count"] if record else 0
+            total_created += count
+
+        logger.info(f"✅ Batch created {total_created} relationships ({len(rels_by_type)} types)")
 
 
 async def close_neo4j() -> None:

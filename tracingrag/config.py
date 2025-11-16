@@ -1,5 +1,6 @@
 """Configuration management using Pydantic settings"""
 
+from pathlib import Path as _Path
 from typing import Any
 
 from pydantic import Field, field_validator
@@ -33,15 +34,13 @@ class Settings(BaseSettings):
     # LLM Provider (OpenRouter)
     openrouter_api_key: str
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    default_llm_model: str = "anthropic/claude-3.5-sonnet"
-    fallback_llm_model: str = "openai/gpt-4-turbo"
-    analysis_model: str = (
-        "tngtech/deepseek-r1t2-chimera:free"  # For conflict detection, quality checks
-    )
-    evaluation_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For promotion evaluation
-    query_analyzer_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For query analysis
-    planner_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For agent query planning
-    manager_model: str = "tngtech/deepseek-r1t2-chimera:free"  # For agent memory management
+    default_llm_model: str = "openai/gpt-4o-mini"
+    fallback_llm_model: str = "openai/gpt-4o-mini"
+    analysis_model: str = "openai/gpt-4o-mini"  # For conflict detection, quality checks
+    evaluation_model: str = "openai/gpt-4o-mini"  # For promotion evaluation
+    query_analyzer_model: str = "openai/gpt-4o-mini"  # For query analysis
+    planner_model: str = "openai/gpt-4o-mini"  # For agent query planning
+    manager_model: str = "openai/gpt-4o-mini"  # For agent memory management
 
     # Embedding Configuration
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
@@ -126,6 +125,20 @@ class Settings(BaseSettings):
     llm_retry_max_delay: float = 60.0  # Maximum delay in seconds between retries
     fallback_llm_max_retries: int = 3  # Maximum retries for fallback model after primary fails
 
+    # Neo4j Snapshot Backup
+    neo4j_snapshot_enabled: bool = Field(
+        default=True, description="Enable Neo4j graph snapshots before mutations"
+    )
+    neo4j_snapshot_path: str = Field(
+        default="./data/neo4j_snapshots", description="Directory to store Neo4j graph snapshots"
+    )
+    neo4j_snapshot_max_count: int = Field(
+        default=100, description="Maximum number of snapshots to keep (oldest will be deleted)"
+    )
+    neo4j_snapshot_compression: bool = Field(
+        default=True, description="Compress snapshots with gzip"
+    )
+
     # Security
     secret_key: str = "your-secret-key-here-change-in-production"
     allowed_origins: str | list[str] = Field(default="http://localhost:3000,http://localhost:8000")
@@ -156,3 +169,28 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+
+# HACK: Force model settings from .env file to override environment variables
+# This is needed because Claude Code parent process sets environment variables
+# that override .env file values
+_env_file = _Path(".env")
+if _env_file.exists():
+    _model_overrides = {}
+    with open(_env_file) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if "=" in _line and not _line.startswith("#"):
+                _key, _value = _line.split("=", 1)
+                _key = _key.strip()
+                _value = _value.strip()
+                # Override model settings
+                if _key in [
+                    "DEFAULT_LLM_MODEL",
+                    "FALLBACK_LLM_MODEL",
+                    "ANALYSIS_MODEL",
+                    "EVALUATION_MODEL",
+                    "QUERY_ANALYZER_MODEL",
+                    "PLANNER_MODEL",
+                    "MANAGER_MODEL",
+                ]:
+                    setattr(settings, _key.lower(), _value)
