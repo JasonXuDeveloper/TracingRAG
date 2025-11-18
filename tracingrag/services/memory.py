@@ -234,7 +234,7 @@ class MemoryService:
         entity_schema: dict[str, Any] | None = None,
         entities: list[tuple[str, str]] | None = None,  # [(entity_type, entity_name), ...]
     ) -> MemoryStateDB:
-        """Create a new memory state (optimized: snapshots + batch relationship management + directional cleanup)
+        """Create a new memory state (optimized: batch relationship management + directional cleanup)
 
         Args:
             topic: Topic/key for the memory
@@ -254,25 +254,7 @@ class MemoryService:
         """
         import asyncio
 
-        # Step 1: Create snapshot before modifying the graph
-        from tracingrag.storage.neo4j_snapshot import get_snapshot_manager
-
-        snapshot_manager = get_snapshot_manager()
-        temp_state_id = uuid4()  # For snapshot filename
-
-        snapshot_path = await snapshot_manager.create_snapshot(
-            state_id=temp_state_id,
-            operation="create",
-            metadata={
-                "topic": topic,
-                "has_parent": parent_state_id is not None,
-            },
-        )
-
-        if snapshot_path:
-            logger.debug(f"📸 Snapshot created: {snapshot_path}")
-
-        # Step 2: Create primary state (without processing relationships)
+        # Step 1: Create primary state (without processing relationships)
         state = await self._create_state_only(
             topic=topic,
             content=content,

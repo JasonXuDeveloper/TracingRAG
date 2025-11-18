@@ -1,6 +1,7 @@
 """Neo4j graph database client for knowledge graph storage and relationship tracking"""
 
 import json
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -373,8 +374,6 @@ async def create_memory_relationship(
         if "last_accessed" not in props:
             props["last_accessed"] = None
 
-        properties_json = json.dumps(props)
-
         if replace_existing:
             # Delete existing relationship of same type first
             delete_query = f"""
@@ -388,12 +387,13 @@ async def create_memory_relationship(
             )
 
         # Use MERGE to avoid creating duplicate relationships
+        # SET r += $properties expands the dict into individual properties
         create_query = f"""
         MATCH (source:MemoryState {{id: $source_id}})
         MATCH (target:MemoryState {{id: $target_id}})
         MERGE (source)-[r:{relationship_type}]->(target)
-        ON CREATE SET r.properties = $properties
-        ON MATCH SET r.properties = $properties
+        ON CREATE SET r += $properties
+        ON MATCH SET r += $properties
         RETURN r
         """
 
@@ -401,7 +401,7 @@ async def create_memory_relationship(
             create_query,
             source_id=str(source_id),
             target_id=str(target_id),
-            properties=properties_json,
+            properties=props,
         )
 
 
@@ -458,7 +458,6 @@ async def update_relationship_access(
         target_id: UUID of the target memory state
         relationship_type: Type of relationship
     """
-    from datetime import datetime
 
     driver = get_neo4j_driver()
 
@@ -749,8 +748,10 @@ async def cleanup_old_version_outgoing_relationships(
         return result
 
 
-async def batch_create_relationships(relationships: list[dict[str, Any]]) -> None:
-    """Batch create relationships using UNWIND optimization
+async def batch_create_relationships(
+    relationships: list[dict[str, Any]], batch_size: int | None = None
+) -> None:
+    """Batch create relationships using UNWIND optimization with chunking
 
     Args:
         relationships: [
@@ -762,9 +763,15 @@ async def batch_create_relationships(relationships: list[dict[str, Any]]) -> Non
             },
             ...
         ]
+        batch_size: Maximum number of relationships per transaction.
+                   If None, uses settings.neo4j_batch_size (default: 100)
     """
     if not relationships:
         return
+
+    # Use batch_size from settings if not provided
+    if batch_size is None:
+        batch_size = settings.neo4j_batch_size
 
     driver = get_neo4j_driver()
 
@@ -774,42 +781,51 @@ async def batch_create_relationships(relationships: list[dict[str, Any]]) -> Non
             "source_id": str(r["source_id"]),
             "target_id": str(r["target_id"]),
             "rel_type": r["rel_type"],
-            "properties": json.dumps(r.get("properties", {})),
+            "properties": r.get("properties", {}),
         }
         for r in relationships
     ]
 
-    async with driver.session(database=settings.neo4j_database) as session:
-        # Use UNWIND for batch creation - process each relationship type separately
-        # Group by type first
-        rels_by_type = {}
-        for rel in rel_data:
-            rel_type = rel["rel_type"]
-            if rel_type not in rels_by_type:
-                rels_by_type[rel_type] = []
-            rels_by_type[rel_type].append(rel)
+    # Group by type first
+    rels_by_type = {}
+    for rel in rel_data:
+        rel_type = rel["rel_type"]
+        if rel_type not in rels_by_type:
+            rels_by_type[rel_type] = []
+        rels_by_type[rel_type].append(rel)
 
-        # Batch create for each type
-        total_created = 0
-        for rel_type, rels in rels_by_type.items():
-            result = await session.run(
-                f"""
-                UNWIND $relationships AS rel
-                MATCH (source:MemoryState {{id: rel.source_id}})
-                MATCH (target:MemoryState {{id: rel.target_id}})
-                CREATE (source)-[r:{rel_type}]->(target)
-                SET r.properties = rel.properties,
-                    r.created_at = datetime()
-                RETURN count(r) AS created_count
-                """,
-                relationships=rels,
-            )
+    # Process in batches to avoid overwhelming Neo4j
+    total_created = 0
+    total_batches = 0
 
-            record = await result.single()
-            count = record["created_count"] if record else 0
-            total_created += count
+    for rel_type, rels in rels_by_type.items():
+        # Split into chunks
+        for i in range(0, len(rels), batch_size):
+            chunk = rels[i : i + batch_size]
 
-        logger.info(f"✅ Batch created {total_created} relationships ({len(rels_by_type)} types)")
+            # Each chunk in its own transaction
+            async with driver.session(database=settings.neo4j_database) as session:
+                result = await session.run(
+                    f"""
+                    UNWIND $relationships AS rel
+                    MATCH (source:MemoryState {{id: rel.source_id}})
+                    MATCH (target:MemoryState {{id: rel.target_id}})
+                    CREATE (source)-[r:{rel_type}]->(target)
+                    SET r += rel.properties,
+                        r.created_at = datetime()
+                    RETURN count(r) AS created_count
+                    """,
+                    relationships=chunk,
+                )
+
+                record = await result.single()
+                count = record["created_count"] if record else 0
+                total_created += count
+                total_batches += 1
+
+    logger.info(
+        f"✅ Batch created {total_created} relationships ({len(rels_by_type)} types, {total_batches} batches)"
+    )
 
 
 async def close_neo4j() -> None:

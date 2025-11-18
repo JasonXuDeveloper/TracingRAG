@@ -16,10 +16,7 @@ from tracingrag.core.models.rag import LLMRequest
 from tracingrag.services.llm import get_llm_client
 from tracingrag.storage.database import get_session
 from tracingrag.storage.models import MemoryStateDB
-from tracingrag.storage.neo4j_client import (
-    create_memory_relationship,
-    get_parent_relationships,
-)
+from tracingrag.storage.neo4j_client import get_parent_relationships
 from tracingrag.utils.json_utils import parse_llm_json
 from tracingrag.utils.logger import get_logger
 
@@ -88,12 +85,15 @@ class RelationshipManager:
         self,
         new_states: list[MemoryStateDB],
         batch_id: str | None = None,
+        max_concurrent: int | None = None,
     ) -> dict[str, Any]:
-        """Batch process relationships for multiple new states concurrently
+        """Batch process relationships for multiple new states with concurrency control
 
         Args:
             new_states: List of newly created memory states
             batch_id: Optional batch ID for caching (unused for now)
+            max_concurrent: Maximum number of states to process concurrently.
+                          If None, uses settings.neo4j_max_concurrent_updates (default: 5)
 
         Returns:
             Dict with batch statistics:
@@ -104,36 +104,44 @@ class RelationshipManager:
 
         from tracingrag.config import settings
 
+        # Use settings if not provided
+        if max_concurrent is None:
+            max_concurrent = settings.neo4j_max_concurrent_updates
+
         # Use threshold from settings
         similarity_threshold = settings.relationship_update_similarity_threshold
 
         logger.info(
             f"Batch processing relationships for {len(new_states)} states "
-            f"(threshold: {similarity_threshold})..."
+            f"(threshold: {similarity_threshold}, max_concurrent: {max_concurrent})..."
         )
 
-        # Process each state concurrently
+        # Semaphore to limit concurrency
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        # Process each state concurrently with limited concurrency
         async def process_state(state: MemoryStateDB) -> dict[str, Any]:
             """Process relationships for a single state"""
-            try:
-                if state.parent_state_id:
-                    # State has parent (evolution) - update relationships
-                    return await self.update_relationships_on_evolution(
-                        new_state=state,
-                        parent_state_id=state.parent_state_id,
-                        similarity_threshold=similarity_threshold,
-                    )
-                else:
-                    # State has no parent (initial creation) - create initial relationships
-                    return await self.create_initial_relationships(
-                        new_state=state,
-                        similarity_threshold=similarity_threshold,
-                    )
-            except Exception as e:
-                logger.error(f"Failed to process relationships for {state.topic}: {e}")
-                return {"error": str(e)}
+            async with semaphore:
+                try:
+                    if state.parent_state_id:
+                        # State has parent (evolution) - update relationships
+                        return await self.update_relationships_on_evolution(
+                            new_state=state,
+                            parent_state_id=state.parent_state_id,
+                            similarity_threshold=similarity_threshold,
+                        )
+                    else:
+                        # State has no parent (initial creation) - create initial relationships
+                        return await self.create_initial_relationships(
+                            new_state=state,
+                            similarity_threshold=similarity_threshold,
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to process relationships for {state.topic}: {e}")
+                    return {"error": str(e)}
 
-        # Execute all relationship processing concurrently
+        # Execute all relationship processing with concurrency limit
         results = await asyncio.gather(
             *[process_state(state) for state in new_states],
             return_exceptions=True,
@@ -406,7 +414,9 @@ class RelationshipManager:
             candidate_states=candidate_states,
         )
 
-        # Step 5: Apply decisions to graph
+        # Step 5: Collect all relationships to create, then batch create them
+        relationships_to_create = []
+
         for decision in relationship_decisions:
             action = decision["action"]
 
@@ -419,11 +429,13 @@ class RelationshipManager:
                     logger.warning(f"   Invalid target_id in keep_existing: {e}, skipping")
                     continue
 
-                await create_memory_relationship(
-                    source_id=new_state.id,
-                    target_id=target_id,
-                    relationship_type=rel["rel_type"],
-                    properties=rel.get("properties", {}),
+                relationships_to_create.append(
+                    {
+                        "source_id": new_state.id,
+                        "target_id": target_id,
+                        "rel_type": rel["rel_type"],
+                        "properties": rel.get("properties", {}),
+                    }
                 )
                 stats["kept"] += 1
 
@@ -440,11 +452,13 @@ class RelationshipManager:
                         )
                         continue
 
-                    await create_memory_relationship(
-                        source_id=new_state.id,
-                        target_id=target_id,
-                        relationship_type=rel["rel_type"],
-                        properties=rel.get("properties", {}),
+                    relationships_to_create.append(
+                        {
+                            "source_id": new_state.id,
+                            "target_id": target_id,
+                            "rel_type": rel["rel_type"],
+                            "properties": rel.get("properties", {}),
+                        }
                     )
                     stats["updated"] += 1
                     logger.info(
@@ -460,11 +474,13 @@ class RelationshipManager:
                         )
                         continue
 
-                    await create_memory_relationship(
-                        source_id=new_state.id,
-                        target_id=target_id,
-                        relationship_type=rel["rel_type"],
-                        properties=rel.get("properties", {}),
+                    relationships_to_create.append(
+                        {
+                            "source_id": new_state.id,
+                            "target_id": target_id,
+                            "rel_type": rel["rel_type"],
+                            "properties": rel.get("properties", {}),
+                        }
                     )
                     stats["kept"] += 1
                     logger.warning(
@@ -485,16 +501,24 @@ class RelationshipManager:
                     logger.warning(f"   Invalid target_id in create_new: {e}, skipping")
                     continue
 
-                await create_memory_relationship(
-                    source_id=new_state.id,
-                    target_id=target_id,
-                    relationship_type=decision["relationship_type"],
-                    properties={"confidence": decision.get("confidence", 0.8)},
+                relationships_to_create.append(
+                    {
+                        "source_id": new_state.id,
+                        "target_id": target_id,
+                        "rel_type": decision["relationship_type"],
+                        "properties": {"confidence": decision.get("confidence", 0.8)},
+                    }
                 )
                 stats["created"] += 1
                 logger.info(
                     f"   + Created: {decision['relationship_type']} → {decision['target_topic']}"
                 )
+
+        # Batch create all relationships at once
+        if relationships_to_create:
+            from tracingrag.storage.neo4j_client import batch_create_relationships
+
+            await batch_create_relationships(relationships_to_create)
 
         logger.info(
             f"Summary: {stats['kept']} kept, {stats['updated']} updated, "
@@ -1396,7 +1420,9 @@ Respond with JSON (only include relationships to create):
             if "reasoning" in item and len(item["reasoning"]) > 80:
                 item["reasoning"] = item["reasoning"][:77] + "..."
 
-        # Create new relationships
+        # Collect all relationships to create, then batch create them
+        relationships_to_create = []
+
         for decision in new_relationships:
             # Ensure candidate_index is int (LLM might return string)
             idx = int(decision.get("candidate_index", 0)) - 1
@@ -1417,20 +1443,28 @@ Respond with JSON (only include relationships to create):
                 )
                 continue
 
-            # Create relationship
-            await create_memory_relationship(
-                source_id=new_state.id,
-                target_id=candidate.state.id,
-                relationship_type=rel_type,
-                properties={
-                    "confidence": candidate.score,
-                    "reasoning": decision.get("reasoning", ""),
-                    "initial_creation": True,
-                },
+            # Collect relationship
+            relationships_to_create.append(
+                {
+                    "source_id": new_state.id,
+                    "target_id": candidate.state.id,
+                    "rel_type": rel_type,
+                    "properties": {
+                        "confidence": candidate.score,
+                        "reasoning": decision.get("reasoning", ""),
+                        "initial_creation": True,
+                    },
+                }
             )
 
             stats["created"] += 1
             logger.info(f"   ✓ Created: {new_state.topic} -[{rel_type}]-> {candidate.state.topic}")
+
+        # Batch create all relationships at once
+        if relationships_to_create:
+            from tracingrag.storage.neo4j_client import batch_create_relationships
+
+            await batch_create_relationships(relationships_to_create)
 
         logger.info(
             f"Initial relationship creation completed: {stats['created']} relationships created"

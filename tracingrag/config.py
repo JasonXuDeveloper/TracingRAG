@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     neo4j_password: str = "tracingrag123"
     neo4j_database: str = "neo4j"
     neo4j_max_connection_pool_size: int = 50
+    neo4j_batch_size: int = Field(
+        default=100,
+        description="Maximum number of relationships to create in a single transaction",
+    )
+    neo4j_max_concurrent_updates: int = Field(
+        default=5,
+        description="Maximum number of memory states to process concurrently for relationship updates",
+    )
 
     # PostgreSQL (Document Store)
     database_url: str = "postgresql+asyncpg://tracingrag:tracingrag123@localhost:5432/tracingrag"
@@ -124,20 +132,6 @@ class Settings(BaseSettings):
     llm_retry_base_delay: float = 1.0  # Base delay in seconds for exponential backoff
     llm_retry_max_delay: float = 60.0  # Maximum delay in seconds between retries
     fallback_llm_max_retries: int = 3  # Maximum retries for fallback model after primary fails
-
-    # Neo4j Snapshot Backup
-    neo4j_snapshot_enabled: bool = Field(
-        default=True, description="Enable Neo4j graph snapshots before mutations"
-    )
-    neo4j_snapshot_path: str = Field(
-        default="./data/neo4j_snapshots", description="Directory to store Neo4j graph snapshots"
-    )
-    neo4j_snapshot_max_count: int = Field(
-        default=100, description="Maximum number of snapshots to keep (oldest will be deleted)"
-    )
-    neo4j_snapshot_compression: bool = Field(
-        default=True, description="Compress snapshots with gzip"
-    )
 
     # Security
     secret_key: str = "your-secret-key-here-change-in-production"
