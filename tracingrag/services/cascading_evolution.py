@@ -267,13 +267,13 @@ class CascadingEvolutionManager:
             )
 
             # Filter out exceptions and log them
-            for result in batch_results:
-                if isinstance(result, Exception):
+            for batch_result in batch_results:
+                if isinstance(batch_result, Exception):
                     logger.error(
-                        f"   ✗ Failed to create cascade state in batch {batch_idx + 1}: {result}"
+                        f"   ✗ Failed to create cascade state in batch {batch_idx + 1}: {batch_result}"
                     )
                 else:
-                    results.append(result)
+                    results.append(batch_result)
 
             logger.info(
                 f"   ✓ Batch {batch_idx + 1}/{num_batches} complete "
