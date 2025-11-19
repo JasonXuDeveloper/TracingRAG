@@ -236,11 +236,49 @@ class CascadingEvolutionManager:
                     "reason": f"Creation failed: {str(e)}",
                 }
 
-        # Execute all cascade state creations concurrently
-        logger.info(f"   Creating {len(evolution_decisions)} cascade states concurrently...")
-        results = await asyncio.gather(
-            *[evolve_topic(decision) for decision in evolution_decisions]
+        # Execute cascade state creations in batches to prevent connection pool exhaustion
+        # Database pool: 20 + 10 overflow = 30 max connections
+        # Use batch processing with conservative batch size to leave headroom for other operations
+        batch_size = 8  # Process 8 cascade states per batch (conservative)
+
+        # Split evolution decisions into batches
+        batches = [
+            evolution_decisions[i : i + batch_size]
+            for i in range(0, len(evolution_decisions), batch_size)
+        ]
+
+        num_batches = len(batches)
+        logger.info(
+            f"   Creating {len(evolution_decisions)} cascade states in {num_batches} "
+            f"batch(es) of up to {batch_size} each..."
         )
+
+        # Process batches sequentially
+        results = []
+        for batch_idx, batch in enumerate(batches):
+            logger.info(
+                f"   📦 Processing batch {batch_idx + 1}/{num_batches} " f"({len(batch)} states)..."
+            )
+
+            # Process all items in this batch concurrently
+            batch_results = await asyncio.gather(
+                *[evolve_topic(decision) for decision in batch],
+                return_exceptions=True,  # Don't fail entire batch if one fails
+            )
+
+            # Filter out exceptions and log them
+            for result in batch_results:
+                if isinstance(result, Exception):
+                    logger.error(
+                        f"   ✗ Failed to create cascade state in batch {batch_idx + 1}: {result}"
+                    )
+                else:
+                    results.append(result)
+
+            logger.info(
+                f"   ✓ Batch {batch_idx + 1}/{num_batches} complete "
+                f"({len([r for r in batch_results if not isinstance(r, Exception)])}/{len(batch)} succeeded)"
+            )
 
         # Collect created states and statistics
         for state, info in results:

@@ -1,5 +1,6 @@
 """FastAPI application for TracingRAG"""
 
+import logging
 import time
 from contextlib import asynccontextmanager
 from uuid import UUID
@@ -50,6 +51,15 @@ async def lifespan(app: FastAPI):
 
     # Startup
     logger.info("Initializing TracingRAG services...")
+
+    # Configure uvicorn logging to follow TracingRAG's log level
+    from tracingrag.config import settings
+
+    uvicorn_log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
+    logging.getLogger("uvicorn").setLevel(uvicorn_log_level)
+    logging.getLogger("uvicorn.access").setLevel(uvicorn_log_level)
+    logging.getLogger("uvicorn.error").setLevel(uvicorn_log_level)
+
     # Initialize database
     from tracingrag.storage.database import init_db
 

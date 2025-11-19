@@ -34,13 +34,15 @@ class Settings(BaseSettings):
     # LLM Provider (OpenRouter)
     openrouter_api_key: str
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    default_llm_model: str = "openai/gpt-4o-mini"
-    fallback_llm_model: str = "openai/gpt-4o-mini"
-    analysis_model: str = "openai/gpt-4o-mini"  # For conflict detection, quality checks
-    evaluation_model: str = "openai/gpt-4o-mini"  # For promotion evaluation
-    query_analyzer_model: str = "openai/gpt-4o-mini"  # For query analysis
-    planner_model: str = "openai/gpt-4o-mini"  # For agent query planning
-    manager_model: str = "openai/gpt-4o-mini"  # For agent memory management
+    default_llm_model: str = "qwen/qwen3-4b:free"
+    fallback_llm_model: str | list[str] = Field(
+        default="qwen/qwen3-8b,openai/gpt-4o-mini"
+    )  # Comma-separated string or list
+    analysis_model: str = "qwen/qwen3-4b:free"  # For conflict detection, quality checks
+    evaluation_model: str = "qwen/qwen3-4b:free"  # For promotion evaluation
+    query_analyzer_model: str = "qwen/qwen3-4b:free"  # For query analysis
+    planner_model: str = "qwen/qwen3-4b:free"  # For agent query planning
+    manager_model: str = "qwen/qwen3-4b:free"  # For agent memory management
 
     # Embedding Configuration
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
@@ -150,6 +152,18 @@ class Settings(BaseSettings):
             return v
         return []
 
+    @field_validator("fallback_llm_model", mode="before")
+    @classmethod
+    def parse_fallback_llm_model(cls, v: Any) -> list[str]:
+        """Parse fallback LLM model - accept string (comma-separated) or list"""
+        if isinstance(v, str):
+            if not v.strip():  # Empty string
+                return []
+            return [item.strip() for item in v.split(",") if item.strip()]
+        if isinstance(v, list):
+            return v
+        return []
+
     @property
     def is_development(self) -> bool:
         """Check if running in development mode"""
@@ -180,7 +194,6 @@ if _env_file.exists():
                 # Override model settings
                 if _key in [
                     "DEFAULT_LLM_MODEL",
-                    "FALLBACK_LLM_MODEL",
                     "ANALYSIS_MODEL",
                     "EVALUATION_MODEL",
                     "QUERY_ANALYZER_MODEL",
@@ -188,3 +201,10 @@ if _env_file.exists():
                     "MANAGER_MODEL",
                 ]:
                     setattr(settings, _key.lower(), _value)
+                # Special handling for fallback_llm_model (parse comma-separated list)
+                elif _key == "FALLBACK_LLM_MODEL":
+                    if _value.strip():
+                        _fallback_models = [
+                            item.strip() for item in _value.split(",") if item.strip()
+                        ]
+                        settings.fallback_llm_model = _fallback_models

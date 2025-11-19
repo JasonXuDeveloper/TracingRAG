@@ -34,6 +34,9 @@ from tracingrag.services.memory import MemoryService
 from tracingrag.services.retrieval import RetrievalService
 from tracingrag.storage.database import get_session
 from tracingrag.storage.models import MemoryStateDB
+from tracingrag.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # ============================================================================
 # Pydantic Schemas for LLM Structured Outputs
@@ -1223,34 +1226,76 @@ Respond with JSON."""
         return evaluation
 
     async def batch_promote(
-        self, candidates: list[PromotionCandidate], max_concurrent: int = 3
+        self, candidates: list[PromotionCandidate], batch_size: int = 3
     ) -> list[PromotionResult]:
         """
-        Batch promote multiple candidates
+        Batch promote multiple candidates using true batch processing
 
         Args:
             candidates: List of promotion candidates
-            max_concurrent: Maximum concurrent promotions
+            batch_size: Number of promotions to process per batch (default: 3)
 
         Returns:
             List of PromotionResult objects
         """
-        results = []
+        import asyncio
+
+        if not candidates:
+            return []
 
         # Sort by priority
         sorted_candidates = sorted(candidates, key=lambda c: c.priority, reverse=True)
 
-        # Process in batches (simplified - in production use asyncio.gather with semaphore)
-        for candidate in sorted_candidates:
-            request = PromotionRequest(
-                topic=candidate.topic,
-                reason=candidate.reasoning,
-                trigger=candidate.trigger,
-            )
-            result = await self.promote_memory(request)
-            results.append(result)
+        # Split candidates into batches
+        batches = [
+            sorted_candidates[i : i + batch_size]
+            for i in range(0, len(sorted_candidates), batch_size)
+        ]
 
-        return results
+        num_batches = len(batches)
+        logger.info(
+            f"Processing {len(sorted_candidates)} promotions in {num_batches} "
+            f"batch(es) of up to {batch_size} each..."
+        )
+
+        # Process batches sequentially
+        all_results = []
+        for batch_idx, batch in enumerate(batches):
+            logger.info(
+                f"📦 Processing promotion batch {batch_idx + 1}/{num_batches} "
+                f"({len(batch)} candidates)..."
+            )
+
+            # Process all candidates in this batch concurrently
+            batch_results = await asyncio.gather(
+                *[
+                    self.promote_memory(
+                        PromotionRequest(
+                            topic=candidate.topic,
+                            reason=candidate.reasoning,
+                            trigger=candidate.trigger,
+                        )
+                    )
+                    for candidate in batch
+                ],
+                return_exceptions=True,  # Don't fail entire batch if one fails
+            )
+
+            # Filter out exceptions and log errors
+            succeeded = 0
+            for i, result in enumerate(batch_results):
+                if isinstance(result, Exception):
+                    logger.error(f"Failed to promote {batch[i].topic}: {result}")
+                else:
+                    all_results.append(result)
+                    succeeded += 1
+
+            logger.info(
+                f"✓ Batch {batch_idx + 1}/{num_batches} complete "
+                f"({succeeded}/{len(batch)} succeeded)"
+            )
+
+        return all_results
 
 
 # Singleton instance

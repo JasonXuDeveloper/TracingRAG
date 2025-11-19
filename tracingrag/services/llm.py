@@ -202,8 +202,9 @@ class LLMClient:
 
         Strategy:
         1. Try primary model (request.model) with llm_max_retries attempts
-        2. If primary fails, try fallback model (settings.fallback_llm_model) with fallback_llm_max_retries attempts
-        3. Only raise exception if both primary and fallback fail
+        2. If primary fails, try each fallback model in settings.fallback_llm_model list
+           with fallback_llm_max_retries attempts per model
+        3. Only raise exception if primary and all fallback models fail
 
         Args:
             request: LLM request with prompt and parameters
@@ -212,51 +213,69 @@ class LLMClient:
             LLM response with generated content
 
         Raises:
-            Exception: If all retry attempts (primary + fallback) fail
+            Exception: If all retry attempts (primary + all fallbacks) fail
         """
         primary_model = request.model or self.default_model
-        fallback_model = settings.fallback_llm_model
+        fallback_models = settings.fallback_llm_model
 
         # Try primary model first
         try:
             logger.debug(f"Attempting with primary model: {primary_model}")
             return await self._generate_with_model(request, primary_model, settings.llm_max_retries)
         except Exception as primary_error:
-            # Primary model failed after all retries, try fallback
+            # Primary model failed after all retries, try fallback models
             logger.warning(
                 f"Primary model {primary_model} failed after {settings.llm_max_retries} retries. "
-                f"Switching to fallback model: {fallback_model}"
+                f"Trying {len(fallback_models)} fallback model(s): {', '.join(fallback_models)}"
             )
 
-            try:
-                # Create a new request with fallback model
-                fallback_request = LLMRequest(
-                    system_prompt=request.system_prompt,
-                    user_message=request.user_message,
-                    context=request.context,
-                    model=fallback_model,
-                    temperature=request.temperature,
-                    max_tokens=request.max_tokens,
-                    json_mode=request.json_mode,
-                    json_schema=request.json_schema,
-                    metadata=request.metadata,
-                )
+            # Try each fallback model in order
+            fallback_errors = []
+            for i, fallback_model in enumerate(fallback_models):
+                try:
+                    logger.info(
+                        f"Attempting fallback model {i + 1}/{len(fallback_models)}: {fallback_model}"
+                    )
 
-                return await self._generate_with_model(
-                    fallback_request, fallback_model, settings.fallback_llm_max_retries
-                )
-            except Exception as fallback_error:
-                # Both primary and fallback failed
-                logger.error(
-                    f"Both primary ({primary_model}) and fallback ({fallback_model}) models failed. "
-                    f"Primary error: {str(primary_error)}. "
-                    f"Fallback error: {str(fallback_error)}"
-                )
-                raise Exception(
-                    f"LLM generation failed for both primary and fallback models. "
-                    f"Primary ({primary_model}): {str(primary_error)}. "
-                    f"Fallback ({fallback_model}): {str(fallback_error)}"
-                ) from fallback_error
+                    # Create a new request with fallback model
+                    fallback_request = LLMRequest(
+                        system_prompt=request.system_prompt,
+                        user_message=request.user_message,
+                        context=request.context,
+                        model=fallback_model,
+                        temperature=request.temperature,
+                        max_tokens=request.max_tokens,
+                        json_mode=request.json_mode,
+                        json_schema=request.json_schema,
+                        metadata=request.metadata,
+                    )
+
+                    return await self._generate_with_model(
+                        fallback_request, fallback_model, settings.fallback_llm_max_retries
+                    )
+                except Exception as fallback_error:
+                    # This fallback model failed, record error and try next one
+                    fallback_errors.append((fallback_model, fallback_error))
+                    logger.warning(
+                        f"Fallback model {fallback_model} failed after {settings.fallback_llm_max_retries} retries. "
+                        f"Error: {str(fallback_error)}"
+                    )
+                    continue
+
+            # All models failed (primary + all fallbacks)
+            fallback_error_messages = "\n".join(
+                [f"  - {model}: {str(error)}" for model, error in fallback_errors]
+            )
+            logger.error(
+                f"All models failed:\n"
+                f"Primary ({primary_model}): {str(primary_error)}\n"
+                f"Fallbacks:\n{fallback_error_messages}"
+            )
+            raise Exception(
+                f"LLM generation failed for primary and all {len(fallback_models)} fallback models. "
+                f"Primary ({primary_model}): {str(primary_error)}. "
+                f"Fallbacks: {fallback_error_messages}"
+            ) from primary_error
 
     async def _generate_with_model(
         self, request: LLMRequest, model: str, max_retries: int
@@ -421,7 +440,7 @@ class LLMClient:
                         "response_id": data.get("id"),
                         "created": data.get("created"),
                         "retry_attempt": attempt,
-                        "was_fallback": model == settings.fallback_llm_model,
+                        "was_fallback": model in settings.fallback_llm_model,
                     },
                 )
 
