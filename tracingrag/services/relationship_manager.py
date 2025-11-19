@@ -911,18 +911,24 @@ Respond with JSON:
 }}
 """
 
-        # Calculate max_tokens: input tokens + expected output tokens
-        # Formula: input_tokens + (|partition| * 100 tokens per item * 1.5 buffer + 1000 for JSON)
+        # Calculate max_tokens for OUTPUT only (not input+output)
+        # Formula: |partition| * 100 tokens per item * 1.5 buffer + 1000 for JSON structure
         estimated_input_tokens = self._estimate_tokens(prompt)
         num_items = len(existing_relationships) + len(candidate_states)
         estimated_output_tokens = int(num_items * 100 * 1.5) + 1000
 
-        max_tokens = estimated_input_tokens + estimated_output_tokens
-        max_tokens = max(2000, min(max_tokens, 32000))  # Clamp between 2k-32k
+        # Model context limit: Most free models have ~40k context (input+output)
+        # Conservative limit: Total should not exceed 35k to leave room for safety
+        model_context_limit = 40000  # Conservative estimate for free models
+        max_safe_output = model_context_limit - estimated_input_tokens - 2000  # 2k safety buffer
+
+        # max_tokens is ONLY for output, clamp to safe range
+        max_tokens = min(estimated_output_tokens, max_safe_output, 16000)  # Cap at 16k output
+        max_tokens = max(2000, max_tokens)  # At least 2k for small requests
 
         logger.debug(
             f"   Round {round_num}: {num_items} items, ~{estimated_input_tokens} input + "
-            f"{estimated_output_tokens} output = {max_tokens} max_tokens"
+            f"{estimated_output_tokens} estimated output = {max_tokens} max_tokens (output only)"
         )
 
         request = LLMRequest(

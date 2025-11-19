@@ -410,14 +410,18 @@ Respond with ONLY the JSON array below, NO additional text or explanations:
 ]
 """
 
-        # Adjust max_tokens based on batch size
-        # Since we now preserve all existing content + add new info, evolved_content can be longer
-        # Estimate: ~1500 tokens per topic (full content + evolved_content), add generous buffer
-        # For Qwen2.5 32B: context is 32K, output can be up to 8K safely
-        estimated_tokens = len(candidate_topics) * 1500 + 3000
-        max_tokens = min(
-            estimated_tokens, 24000
-        )  # Increased to 24K for Qwen (supports up to 32K context)
+        # Calculate max_tokens for OUTPUT only
+        # Estimate: ~1500 tokens per topic (full content + evolved_content), add buffer
+        estimated_input_tokens = len(prompt) // 4  # Rough estimate
+        estimated_output_tokens = len(candidate_topics) * 1500 + 3000
+
+        # Model context limit: Most free models have ~40k context (input+output)
+        model_context_limit = 40000
+        max_safe_output = model_context_limit - estimated_input_tokens - 2000  # 2k safety buffer
+
+        # Cap output to safe range considering input size
+        max_tokens = min(estimated_output_tokens, max_safe_output, 16000)  # Cap at 16k output
+        max_tokens = max(2000, max_tokens)  # At least 2k
 
         request = LLMRequest(
             system_prompt="""You are an expert knowledge graph curator that decides when related topics should evolve based on new information.

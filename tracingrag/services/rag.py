@@ -553,8 +553,8 @@ Final synthesized answer:"""
             start_ref = global_idx
             end_ref = global_idx + len(partition) - 1
 
-            # Use generous max_tokens for query analysis
-            partition_max_tokens = 50000  # Generous limit for detailed analysis
+            # Calculate safe max_tokens for this partition (will be refined in _process_states_partition)
+            partition_max_tokens = 16000  # Reasonable output limit per partition
 
             task = self._process_states_partition(
                 query=query,
@@ -596,7 +596,7 @@ Final synthesized answer:"""
                 system_prompt=system_prompt,
                 model=model,
                 temperature=temperature,
-                max_tokens=80000,  # Very generous limit for comprehensive final synthesis
+                max_tokens=16000,  # Reasonable limit for final synthesis (input-aware calc inside)
             )
             total_tokens_generated += merge_result["tokens"]
             final_answer = merge_result["content"]
@@ -726,6 +726,15 @@ Analyze partition {partition_num}/{total_partitions} (references [{start_ref}]-[
 
 Answer (2-4 paragraphs):"""
 
+        # Calculate safe max_tokens considering input size
+        estimated_input_tokens = len(prompt) // 4  # Rough estimate
+        model_context_limit = 40000  # Conservative for free models
+        max_safe_output = model_context_limit - estimated_input_tokens - 2000  # 2k safety buffer
+
+        # Use smaller of requested max_tokens or safe calculated limit
+        safe_max_tokens = min(max_tokens, max_safe_output, 16000)  # Cap at 16k
+        safe_max_tokens = max(2000, safe_max_tokens)  # At least 2k
+
         # Call LLM
         llm_request = LLMRequest(
             system_prompt=system_prompt or self.default_system_prompt,
@@ -733,7 +742,7 @@ Answer (2-4 paragraphs):"""
             context="",
             model=model or settings.default_llm_model,
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_tokens=safe_max_tokens,
         )
 
         llm_response = await self.llm_client.generate(llm_request)
@@ -810,14 +819,23 @@ Synthesize ALL {len(all_results)} partition analyses into ONE comprehensive fina
 
 Comprehensive final answer (6-15 paragraphs, covering ALL important points):"""
 
-        # Call LLM with very generous max_tokens
+        # Calculate safe max_tokens considering input size
+        estimated_input_tokens = len(prompt) // 4  # Rough estimate
+        model_context_limit = 40000  # Conservative for free models
+        max_safe_output = model_context_limit - estimated_input_tokens - 2000  # 2k safety buffer
+
+        # Use smaller of requested max_tokens or safe calculated limit
+        safe_max_tokens = min(max_tokens, max_safe_output, 16000)  # Cap at 16k
+        safe_max_tokens = max(4000, safe_max_tokens)  # At least 4k for comprehensive synthesis
+
+        # Call LLM with safe max_tokens
         llm_request = LLMRequest(
             system_prompt=system_prompt or self.default_system_prompt,
             user_message=prompt,
             context="",
             model=model or settings.default_llm_model,
             temperature=temperature,
-            max_tokens=max_tokens,
+            max_tokens=safe_max_tokens,
         )
 
         llm_response = await self.llm_client.generate(llm_request)
